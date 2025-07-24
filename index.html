@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>何ターン目に引ける君 (HTML版)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Slide-in panel styles */
+        .slide-in-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 100%;
+            max-width: 400px; /* Adjust as needed */
+            height: 100%;
+            background-color: rgba(31, 41, 55, 0.95); /* Gray-800 with transparency */
+            z-index: 1000;
+            transform: translateX(100%);
+            transition: transform 0.3s ease-out;
+            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.3);
+            overflow-y: auto;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+        }
+        .slide-in-panel.open {
+            transform: translateX(0);
+        }
+    </style>
+    <!-- React & ReactDOM CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel Standalone CDN for JSX in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gray-900 text-white">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useRef } = React;
+
+        // Main application component
+        const App = () => {
+            // Fixed deck size
+            const deckSize = 40;
+            // Max turns changed to 15
+            const maxTurns = 15;
+            // Fixed number of simulations
+            const numSimulations = 10000;
+            // Hand size limit
+            const handLimit = 9;
+            // Max number of locally saved results
+            const maxSavedResults = 5;
+
+            // Simulation settings state
+            const [cardTypes, setCardTypes] = useState([
+                { id: 1, name: 'キーカードA', count: 3, cost: 3, drawCount: 0, mulliganKeepCount: 1, playPriorityTurns: [5], type: 'フォロワー', spellboostIncreaseAmount: 0 }, // Example: Keep 1 of this card on mulligan, play priority on turn 5
+                { id: 2, name: 'ドローカードA', count: 3, cost: 1, drawCount: 1, mulliganKeepCount: 0, playPriorityTurns: [], type: 'スペル', spellboostIncreaseAmount: 0 }, // Example: Don't keep this on mulligan, no play priority
+                { id: 3, name: 'その他カード', count: 34, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'アミュレット', spellboostIncreaseAmount: 0 }, // Example: Other cards
+            ]);
+            const [selectedTargetCardTypeId, setSelectedTargetCardTypeId] = useState(cardTypes[0]?.id || null); // ID of the target card for probability calculation
+            const [isFirstPlayer, setIsFirstPlayer] = useState(true);
+            // State for user-defined extra PP turns
+            const [extraPpTurn1, setExtraPpTurn1] = useState(5); // Default to turn 5
+            const [extraPpTurn2, setExtraPpTurn2] = useState(6); // Default to turn 6
+            // State for selected class, default to empty string for "なし"
+            const [selectedClass, setSelectedClass] = useState(''); 
+            
+            // UI state for collapsible sections
+            const [showGameSettings, setShowGameSettings] = useState(true); // Game settings section
+            const [showDeckSettings, setShowDeckSettings] = useState(true); // Deck card settings section
+            const [showDeckSettingsUsage, setShowDeckSettingsUsage] = useState(false); // New: Deck settings usage section
+            const [showCalculationMethod, setShowCalculationMethod] = useState(true); // Calculation method section (already existed)
+            
+            // Simulation results and UI state
+            const [results, setResults] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [message, setMessage] = useState('');
+
+            // Locally saved results state
+            const [savedSimulations, setSavedSimulations] = useState([]);
+            const [saveDescription, setSaveDescription] = useState('');
+            const [showSavedResultsPanel, setShowSavedResultsPanel] = useState(false); // Controls the slide-in panel visibility
+            const [loadedSavedComparisonResults, setLoadedSavedComparisonResults] = useState([]); // Results for comparison
+
+            // Calculate total card count in deck in real-time
+            const totalCurrentDeckCount = cardTypes.reduce((sum, ct) => sum + (parseInt(ct.count) || 0), 0);
+
+
+            // Set selectedTargetCardTypeId appropriately when cardTypes updates
+            useEffect(() => {
+                if (!selectedTargetCardTypeId && cardTypes.length > 0) {
+                    setSelectedTargetCardTypeId(cardTypes[0].id);
+                } else if (selectedTargetCardTypeId && !cardTypes.some(ct => ct.id === selectedTargetCardTypeId)) {
+                    // If the selected card was deleted, re-select the first card
+                    setSelectedTargetCardTypeId(cardTypes.length > 0 ? cardTypes[0].id : null);
+                }
+            }, [cardTypes, selectedTargetCardTypeId]);
+
+            // Add a new card type setting
+            const addCardType = () => {
+                setCardTypes([...cardTypes, { id: Date.now(), name: '', count: 3, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'フォロワー', spellboostIncreaseAmount: 0 }]);
+            };
+
+            // Update an existing card type setting
+            const updateCardType = (id, field, value) => {
+                setCardTypes(cardTypes.map(cardType => {
+                    if (cardType.id === id) {
+                        if (field === 'playPriorityTurns') {
+                            // value is a single turn number to toggle
+                            const currentTurns = cardType.playPriorityTurns;
+                            const newTurns = currentTurns.includes(value)
+                                ? currentTurns.filter(turn => turn !== value) // Remove if already present
+                                : [...currentTurns, value].sort((a, b) => a - b); // Add and sort if not present
+                            return { ...cardType, [field]: newTurns };
+                        }
+                        return { ...cardType, [field]: value };
+                    }
+                    return cardType;
+                }));
+            };
+
+            // Remove a card type setting
+            const removeCardType = (id) => {
+                setCardTypes(cardTypes.filter(cardType => cardType.id !== id));
+            };
+
+            // Move card type up
+            const moveCardTypeUp = (id) => {
+                setCardTypes(prevCardTypes => {
+                    const index = prevCardTypes.findIndex(card => card.id === id);
+                    if (index > 0) {
+                        const newCardTypes = [...prevCardTypes];
+                        [newCardTypes[index - 1], newCardTypes[index]] = [newCardTypes[index], newCardTypes[index - 1]];
+                        return newCardTypes;
+                    }
+                    return prevCardTypes;
+                });
+            };
+
+            // Move card type down
+            const moveCardTypeDown = (id) => {
+                setCardTypes(prevCardTypes => {
+                    const index = prevCardTypes.findIndex(card => card.id === id);
+                    if (index < prevCardTypes.length - 1) {
+                        const newCardTypes = [...prevCardTypes];
+                        [newCardTypes[index + 1], newCardTypes[index]] = [newCardTypes[index], newCardTypes[index + 1]];
+                        return newCardTypes;
+                    }
+                    return prevCardTypes;
+                });
+            };
+
+            // Main simulation logic
+            const runSimulation = useCallback(() => {
+                setMessage('');
+                setLoading(true);
+                
+                setResults([]); // Clear results for new calculation
+
+                // Input validation
+                const totalCardCountInDeck = cardTypes.reduce((sum, ct) => sum + (parseInt(ct.count) || 0), 0);
+                if (totalCardCountInDeck !== deckSize) {
+                    setMessage(`デッキの合計枚数が${deckSize}枚ではありません。現在: ${totalCardCountInDeck}枚。`);
+                    setLoading(false);
+                    return;
+                }
+
+                const selectedTargetCard = cardTypes.find(ct => ct.id === selectedTargetCardTypeId);
+                if (!selectedTargetCard) {
+                    setMessage('確率を計算する対象カードを選択してください。');
+                    setLoading(false);
+                    return;
+                }
+                const maxTargetCopiesInDeck = parseInt(selectedTargetCard.count) || 0;
+
+                // Validate extra PP turns
+                if (!isFirstPlayer) {
+                    const turn1 = parseInt(extraPpTurn1);
+                    const turn2 = parseInt(extraPpTurn2);
+
+                    if (isNaN(turn1) || turn1 < 1 || turn1 > maxTurns || isNaN(turn2) || turn2 < 1 || turn2 > maxTurns) {
+                        setMessage('エクストラPP使用ターンは1から最大ターン数までの数字で指定してください。');
+                        setLoading(false);
+                        return;
+                    }
+                    if (turn1 === turn2) {
+                        setMessage('エクストラPP使用ターン1とターン2は異なるターンを指定してください。');
+                        setLoading(false);
+                        return;
+                    }
+                }
+
+                // Validate mulligan keep counts and play priority turns for each card type
+                for (const cardType of cardTypes) {
+                    const keepCount = parseInt(cardType.mulliganKeepCount);
+                    const deckCount = parseInt(cardType.count);
+                    if (isNaN(keepCount) || keepCount < 0 || keepCount > 3 || keepCount > deckCount) {
+                        setMessage(`カード「${cardType.name || '名称未設定'}」のマリガンキープ枚数は0から3までの数字で、採用枚数以下で指定してください。`);
+                        setLoading(false);
+                        return;
+                    }
+
+                    // Validate playPriorityTurns array
+                    if (!Array.isArray(cardType.playPriorityTurns)) {
+                        setMessage(`カード「${cardType.name || '名称未設定'}」のプレイ優先ターン設定が不正です。`);
+                        setLoading(false);
+                        return;
+                    }
+                    for (const turn of cardType.playPriorityTurns) {
+                        if (isNaN(turn) || turn < 1 || turn > maxTurns) { // 0は選択肢にないので1からmaxTurns
+                            setMessage(`カード「${cardType.name || '名称未設定'}」のプレイ優先ターンは1から${maxTurns}までの数字で指定してください。`);
+                            setLoading(false);
+                            return;
+                        }
+                    }
+
+                    // Only validate spellboostIncreaseAmount if Witch class is selected, otherwise it's irrelevant.
+                    if (selectedClass === 'Witch') {
+                        const spellboostAmount = parseInt(cardType.spellboostIncreaseAmount);
+                        if (isNaN(spellboostAmount) || spellboostAmount < 0) {
+                            setMessage(`カード「${cardType.name || '名称未設定'}」の追加スペルブースト量は0以上の数字で指定してください。`);
+                            setLoading(false);
+                            return;
+                        }
+                    }
+                }
+
+                // simulationCounts[turn][totalCopiesDrawnByThisTurn]
+                // Records the number of simulations for each total number of target cards drawn by the end of each turn
+                const simulationCounts = Array(maxTurns + 1).fill(0).map(() => Array(maxTargetCopiesInDeck + 1).fill(0));
+
+                // Spellboost tracking (only for Witch class)
+                const isWitchClassSelected = selectedClass === 'Witch';
+                let totalSpellsPlayedPerTurnRawSum = Array(maxTurns + 1).fill(0);
+                let totalCumulativeSpellsPlayedRawSum = Array(maxTurns + 1).fill(0);
+
+                let simulationsCompleted = 0;
+
+
+                const performSingleSimulationCorrectedSpellboost = () => {
+                    let deck = [];
+                    cardTypes.forEach(cardType => {
+                        for (let k = 0; k < (parseInt(cardType.count) || 0); k++) {
+                            deck.push({ 
+                                id: cardType.id, name: cardType.name, cost: parseInt(cardType.cost) || 0, 
+                                drawCount: parseInt(cardType.drawCount) || 0,
+                                mulliganKeepCount: parseInt(cardType.mulliganKeepCount) || 0,
+                                playPriorityTurns: [...cardType.playPriorityTurns], // Copy array
+                                type: cardType.type,
+                                spellboostIncreaseAmount: parseInt(cardType.spellboostIncreaseAmount) || 0 // Ensure it's a number
+                            });
+                        }
+                    });
+
+                    for (let j = deck.length - 1; j > 0; j--) {
+                        const k = Math.floor(Math.random() * (j + 1));
+                        [deck[j], deck[k]] = [deck[k], deck[j]];
+                    }
+
+                    let hand = [];
+                    let pp = 0;
+                    let currentDeck = [...deck];
+                    let totalTargetCardsDrawn = 0;
+
+                    let spellsPlayedPerTurnInSim = Array(maxTurns + 1).fill(0); // Spells played in THIS simulation, per turn
+                    let cumulativeSpellsPlayedInSim = Array(maxTurns + 1).fill(0); // Cumulative spells in THIS simulation, up to turn
+
+                    let extraPpUsed1 = false;
+                    let extraPpUsed2 = false;
+
+                    const drawCard = () => {
+                        if (currentDeck.length > 0) {
+                            const drawnCard = currentDeck.shift();
+                            if (drawnCard.id === selectedTargetCardTypeId) {
+                                totalTargetCardsDrawn++;
+                            }
+                            if (hand.length < handLimit) {
+                                hand.push(drawnCard);
+                            } else {
+                                // Card is discarded if hand is full
+                            }
+                        }
+                    };
+
+                    let initialHandCards = [];
+                    for (let j = 0; j < 4; j++) {
+                        if (currentDeck.length > 0) {
+                            initialHandCards.push(currentDeck.shift());
+                        }
+                    }
+
+                    let keptCardsFromMulligan = [];
+                    let returnedToDeckFromMulligan = [];
+                    let currentKeptCounts = {};
+
+                    initialHandCards.forEach(card => {
+                        const cardTypeId = card.id;
+                        const desiredKeepCount = card.mulliganKeepCount;
+                        currentKeptCounts[cardTypeId] = currentKeptCounts[cardTypeId] || 0;
+
+                        if (currentKeptCounts[cardTypeId] < desiredKeepCount) {
+                            keptCardsFromMulligan.push(card);
+                            currentKeptCounts[cardTypeId]++;
+                        } else {
+                            returnedToDeckFromMulligan.push(card);
+                        }
+                    });
+
+                    const cardsToDrawAfterMulligan = 4 - keptCardsFromMulligan.length;
+                    hand = [...keptCardsFromMulligan];
+                    totalTargetCardsDrawn = hand.filter(card => card.id === selectedTargetCardTypeId).length;
+
+                    currentDeck = [...currentDeck, ...returnedToDeckFromMulligan];
+                    for (let j = currentDeck.length - 1; j > 0; j--) {
+                        const k = Math.floor(Math.random() * (j + 1));
+                        [currentDeck[j], currentDeck[k]] = [currentDeck[k], currentDeck[j]];
+                    }
+
+                    for (let j = 0; j < cardsToDrawAfterMulligan; j++) {
+                        drawCard();
+                    }
+                    
+                    simulationCounts[0][totalTargetCardsDrawn]++;
+                    // For turn 0, spells played is 0, cumulative is 0.
+                    if (isWitchClassSelected) {
+                        spellsPlayedPerTurnInSim[0] = 0;
+                        cumulativeSpellsPlayedInSim[0] = 0;
+                    }
+
+
+                    for (let turn = 1; turn <= maxTurns; turn++) {
+                        let currentTurnSpellsPlayed = 0; // Spells played in *this specific turn* of the simulation
+
+                        let currentMaxPp = Math.min(turn, 10);
+                        pp = currentMaxPp;
+
+                        if (!isFirstPlayer) {
+                            const parsedExtraPpTurn1 = parseInt(extraPpTurn1);
+                            const parsedExtraPpTurn2 = parseInt(extraPpTurn2);
+
+                            const canUseExtraPpAtTurn1 = turn === parsedExtraPpTurn1 && !extraPpUsed1;
+                            const canUseExtraPpAtTurn2 = turn === parsedExtraPpTurn2 && !extraPpUsed2;
+
+                            if (canUseExtraPpAtTurn1 || canUseExtraPpAtTurn2) {
+                                const potentialPp = pp + 1;
+                                const canPlayCardWithExtraPp = hand.some(card =>
+                                    card.cost <= potentialPp && card.cost > pp
+                                );
+
+                                if (canPlayCardWithExtraPp) {
+                                    pp += 1;
+                                    if (turn === parsedExtraPpTurn1) extraPpUsed1 = true;
+                                    else if (turn === parsedExtraPpTurn2) extraPpUsed2 = true; 
+                                }
+                            }
+                        }
+
+                        drawCard();
+
+                        let currentPp = pp;
+                        let playedThisTurnInstances = new Set();
+
+                        while (true) {
+                            let playableCards = hand.filter(card => card.cost <= currentPp && !playedThisTurnInstances.has(card));
+
+                            if (playableCards.length === 0) {
+                                break;
+                            }
+
+                            playableCards.sort((a, b) => {
+                                // Priority: Card with current turn in playPriorityTurns array
+                                const isAPriorityPlayCard = a.playPriorityTurns.includes(turn) && a.cost <= currentPp;
+                                const isBPriorityPlayCard = b.playPriorityTurns.includes(turn) && b.cost <= currentPp;
+
+                                if (isAPriorityPlayCard && !isBPriorityPlayCard) return -1;
+                                if (!isAPriorityPlayCard && isBPriorityPlayCard) return 1;
+
+                                // Secondary priority: Higher cost
+                                if (b.cost !== a.cost) {
+                                    return b.cost - a.cost;
+                                }
+                                // Tertiary priority: Draw effect
+                                if (b.drawCount > 0 && a.drawCount === 0) return -1;
+                                if (a.drawCount > 0 && b.drawCount === 0) return 1;
+                                return 0;
+                            });
+
+                            const cardToPlay = playableCards[0];
+
+                            currentPp -= cardToPlay.cost;
+
+                            if (isWitchClassSelected) {
+                                if (cardToPlay.type === 'スペル') {
+                                    currentTurnSpellsPlayed++; // Base spell play
+                                }
+                                if (cardToPlay.spellboostIncreaseAmount > 0) {
+                                    currentTurnSpellsPlayed += cardToPlay.spellboostIncreaseAmount; // Additional spellboost from specific cards
+                                }
+                            }
+
+                            const indexInHand = hand.indexOf(cardToPlay);
+                            if (indexInHand > -1) {
+                                hand.splice(indexInHand, 1);
+                            }
+                            playedThisTurnInstances.add(cardToPlay);
+
+                            for (let k = 0; k < cardToPlay.drawCount; k++) {
+                                drawCard();
+                            }
+                        }
+
+                        simulationCounts[turn][totalTargetCardsDrawn]++;
+                        
+                        if (isWitchClassSelected) {
+                            spellsPlayedPerTurnInSim[turn] = currentTurnSpellsPlayed;
+                            cumulativeSpellsPlayedInSim[turn] = cumulativeSpellsPlayedInSim[turn - 1] + currentTurnSpellsPlayed;
+                        }
+                    } // End of turn loop
+
+                    // Accumulate spellboost data from this simulation to the total sums
+                    if (isWitchClassSelected) {
+                        for (let turn = 0; turn <= maxTurns; turn++) {
+                            totalSpellsPlayedPerTurnRawSum[turn] += spellsPlayedPerTurnInSim[turn];
+                            totalCumulativeSpellsPlayedRawSum[turn] += cumulativeSpellsPlayedInSim[turn];
+                        }
+                    }
+                }; // End of performSingleSimulationCorrectedSpellboost
+
+                const runBatch = () => {
+                    const batchSize = Math.max(1, Math.floor(numSimulations / 100));
+                    let currentBatchCount = 0;
+
+                    while (currentBatchCount < batchSize && simulationsCompleted < numSimulations) {
+                        performSingleSimulationCorrectedSpellboost(); // Use the corrected simulation function
+                        simulationsCompleted++;
+                        currentBatchCount++;
+                    }
+
+                    if (simulationsCompleted < numSimulations) {
+                        requestAnimationFrame(runBatch);
+                    } else {
+                        const cumulativeResults = [];
+                        const displayMaxCopies = Math.min(maxTargetCopiesInDeck, 3);
+
+                        for (let turn = 0; turn <= maxTurns; turn++) {
+                            const currentTurnData = { turn: turn === 0 ? '初期手札+マリガン' : `${turn}ターン目` };
+
+                            for (let n = 1; n <= displayMaxCopies; n++) {
+                                let countForAtLeastN = 0;
+                                for (let c = n; c <= maxTargetCopiesInDeck; c++) {
+                                    countForAtLeastN += simulationCounts[turn][c];
+                                }
+                                currentTurnData[`probabilityAtLeast${n}`] = (countForAtLeastN / numSimulations * 100).toFixed(2);
+                            }
+
+                            // Add spellboost averages if Witch class is selected
+                            if (isWitchClassSelected) {
+                                currentTurnData.averageSpellsPerTurn = (totalSpellsPlayedPerTurnRawSum[turn] / numSimulations).toFixed(2);
+                                currentTurnData.averageCumulativeSpells = (totalCumulativeSpellsPlayedRawSum[turn] / numSimulations).toFixed(2);
+                            }
+                            cumulativeResults.push(currentTurnData);
+                        }
+
+                        setResults(cumulativeResults);
+                        setLoading(false);
+                    }
+                };
+
+                requestAnimationFrame(runBatch);
+            }, [cardTypes, selectedTargetCardTypeId, isFirstPlayer, numSimulations, deckSize, maxTurns, extraPpTurn1, extraPpTurn2, selectedClass, handLimit, results]);
+
+            // Helper function to get color class based on probability
+            const getProbabilityColorClass = (probability) => {
+                const prob = parseFloat(probability);
+                if (isNaN(prob)) return '';
+                if (prob < 30) {
+                    return 'text-red-400'; // Red text for < 30%
+                } else if (prob >= 30 && prob < 70) {
+                    return 'text-yellow-300'; // Yellow text for 30-70%
+                } else {
+                    return 'text-green-400'; // Green text for >= 70%
+                }
+            };
+
+            // Helper function to get text color for card type (reinstated)
+            const getCardTypeTextColorClass = (type) => {
+                switch (type) {
+                    case 'フォロワー':
+                        return 'text-red-500';
+                    case 'スペル':
+                        return 'text-purple-500';
+                    case 'アミュレット':
+                        return 'text-green-500';
+                    default:
+                        return 'text-gray-200'; // Default text color
+                }
+            };
+
+            // Dynamically determine max copies to display in UI
+            const selectedTargetCard = cardTypes.find(ct => ct.id === selectedTargetCardTypeId);
+            const maxTargetCopiesInDeck = parseInt(selectedTargetCard?.count || 0);
+            const displayMaxCopies = Math.min(maxTargetCopiesInDeck, 3);
+
+            // --- Local Save/Load/Delete Operations ---
+            const saveCurrentResultsLocally = () => {
+                if (results.length === 0) {
+                    setMessage("保存する計算結果がありません。先に計算を実行してください。");
+                    return;
+                }
+
+                const newSavedItem = {
+                    id: Date.now(), // Unique ID for the item
+                    description: saveDescription || `無題の計算結果 ${new Date().toLocaleString()}`,
+                    timestamp: Date.now(),
+                    resultsData: results,
+                    cardTypesData: cardTypes,
+                    gameSettingsData: {
+                        isFirstPlayer,
+                        extraPpTurn1,
+                        extraPpTurn2,
+                        selectedClass
+                    }
+                };
+
+                setSavedSimulations(prevSavedSimulations => {
+                    let updatedSimulations = [newSavedItem, ...prevSavedSimulations];
+                    // Keep only the latest 'maxSavedResults' items
+                    if (updatedSimulations.length > maxSavedResults) {
+                        updatedSimulations = updatedSimulations.slice(0, maxSavedResults);
+                    }
+                    setMessage("計算結果が保存されました！");
+                    setSaveDescription(''); // Clear description after saving
+                    return updatedSimulations;
+                });
+            };
+
+            // Load saved results for comparison
+            const loadSavedResultForComparison = (savedItem) => {
+                setLoadedSavedComparisonResults(savedItem.resultsData);
+                setMessage(`「${savedItem.description}」を比較対象として読み込みました。`);
+                setShowSavedResultsPanel(false); // Close the panel after selection
+            };
+
+            // Apply saved settings to current state
+            const applySavedSettings = (savedItem) => {
+                setLoading(true); // Indicate loading as settings are being applied
+                try {
+                    setCardTypes(savedItem.cardTypesData);
+                    setIsFirstPlayer(savedItem.gameSettingsData.isFirstPlayer);
+                    setExtraPpTurn1(savedItem.gameSettingsData.extraPpTurn1);
+                    setExtraPpTurn2(savedItem.gameSettingsData.extraPpTurn2);
+                    setSelectedClass(savedItem.gameSettingsData.selectedClass);
+                    // Also update the selected target card if it exists in the loaded settings
+                    const loadedTargetCard = savedItem.cardTypesData.find(ct => ct.id === selectedTargetCardTypeId);
+                    setSelectedTargetCardTypeId(loadedTargetCard ? selectedTargetCardTypeId : savedItem.cardTypesData[0]?.id || null);
+                    setMessage(`「${savedItem.description}」の設定を適用しました。`);
+                    setShowSavedResultsPanel(false); // Close the panel after selection
+                } catch (e) {
+                    console.error("Error applying saved settings:", e);
+                    setMessage("保存済み設定の適用中にエラーが発生しました。");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const deleteSavedResultLocally = (id, description) => {
+                setSavedSimulations(prevSavedSimulations => {
+                    const updatedSimulations = prevSavedSimulations.filter(item => item.id !== id);
+                    // If the deleted item was the one being compared, clear comparison results
+                    if (loadedSavedComparisonResults.length > 0 && prevSavedSimulations.find(item => item.id === id)?.resultsData === loadedSavedComparisonResults) {
+                        setLoadedSavedComparisonResults([]);
+                    }
+                    setMessage(`「${description}」を削除しました。`);
+                    return updatedSimulations;
+                });
+            };
+
+            return (
+                <div className="p-4 sm:p-6 md:p-8 bg-gray-900 text-white min-h-screen font-inter">
+                    <h1 className="text-3xl sm:text-4xl font-bold text-center mb-6 sm:mb-8 text-purple-400">
+                        何ターン目に引ける君
+                    </h1>
+
+                    <div className="max-w-full mx-auto bg-gray-800 rounded-xl shadow-lg p-6 sm:p-8 space-y-6">
+                        {/* Game Settings Section */}
+                        <div className="bg-gray-700 rounded-xl shadow-md overflow-hidden">
+                            <button
+                                className="w-full flex justify-between items-center p-4 text-lg font-semibold text-gray-100 hover:bg-gray-600 transition duration-200"
+                                onClick={() => setShowGameSettings(!showGameSettings)}
+                            >
+                                <span>ゲーム設定</span>
+                                <svg
+                                    className={`w-5 h-5 transition-transform duration-200 ${
+                                        showGameSettings ? 'rotate-180' : ''
+                                    }`}
+                                    fill="currentColor"
+                                    viewBox="0 0 20 20"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                >
+                                    <path
+                                        fillRule="evenodd"
+                                        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                                        clipRule="evenodd"
+                                    ></path>
+                                </svg>
+                            </button>
+                            {showGameSettings && (
+                                <div className="p-4 border-t border-gray-600 space-y-4">
+                                    {/* Class Selection */}
+                                    <div className="flex flex-col">
+                                        <label htmlFor="classSelect" className="text-sm font-medium text-gray-300 mb-1">クラス選択</label>
+                                        <select
+                                            id="classSelect"
+                                            value={selectedClass}
+                                            onChange={(e) => setSelectedClass(e.target.value)}
+                                            className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500"
+                                        >
+                                            <option value="">設定なし</option>
+                                            <option value="Elf">エルフ</option>
+                                            <option value="Royal">ロイヤル</option>
+                                            <option value="Witch">ウィッチ</option>
+                                            <option value="Dragon">ドラゴン</option>
+                                            <option value="Nightmare">ナイトメア</option>
+                                            <option value="Bishop">ビショップ</option>
+                                            <option value="Nemesis">ネメシス</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Player turn selection */}
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium text-gray-300 mb-2">プレイヤーのターン</span>
+                                        <div className="flex space-x-4">
+                                            <label className="inline-flex items-center">
+                                                <input
+                                                    type="radio"
+                                                    name="playerTurn"
+                                                    value="first"
+                                                    checked={isFirstPlayer}
+                                                    onChange={() => setIsFirstPlayer(true)}
+                                                    className="form-radio text-purple-500 focus:ring-purple-500"
+                                                />
+                                                <span className="ml-2 text-gray-200">先攻</span>
+                                            </label>
+                                            <label className="inline-flex items-center">
+                                                <input
+                                                    type="radio"
+                                                    name="playerTurn"
+                                                    value="second"
+                                                    checked={!isFirstPlayer}
+                                                    onChange={() => setIsFirstPlayer(false)}
+                                                    className="form-radio text-purple-500 focus:ring-purple-500"
+                                                />
+                                                <span className="ml-2 text-gray-200">後攻</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    {/* Extra PP Turn Settings (only visible for second player) */}
+                                    {!isFirstPlayer && (
+                                        <div className="flex flex-col sm:flex-row gap-4 mt-4 p-4 bg-gray-800 rounded-md">
+                                            <div className="flex flex-col flex-1">
+                                                <label htmlFor="extraPpTurn1" className="text-sm font-medium text-gray-300 mb-1">エクストラPP使用ターン1</label>
+                                                <input
+                                                    type="number"
+                                                    id="extraPpTurn1"
+                                                    value={extraPpTurn1}
+                                                    onChange={(e) => setExtraPpTurn1(e.target.value)}
+                                                    className="p-2 rounded-md bg-gray-700 border border-gray-600 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                    min="1"
+                                                    max={maxTurns}
+                                                />
+                                            </div>
+                                            <div className="flex flex-col flex-1">
+                                                <label htmlFor="extraPpTurn2" className="text-sm font-medium text-gray-300 mb-1">エクストラPP使用ターン2</label>
+                                                <input
+                                                    type="number"
+                                                    id="extraPpTurn2"
+                                                    value={extraPpTurn2}
+                                                    onChange={(e) => setExtraPpTurn2(e.target.value)}
+                                                    className="p-2 rounded-md bg-gray-700 border border-gray-600 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                    min="1"
+                                                    max={maxTurns}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Deck Card Settings Section */}
+                        <div className="bg-gray-700 rounded-xl shadow-md overflow-hidden">
+                            <button
+                                className="w-full flex justify-between items-center p-4 text-lg font-semibold text-gray-100 hover:bg-gray-600 transition duration-200"
+                                onClick={() => setShowDeckSettings(!showDeckSettings)}
+                            >
+                                <span>デッキカード設定 (現在の合計: {totalCurrentDeckCount} / {deckSize}枚)</span>
+                                <svg
+                                    className={`w-5 h-5 transition-transform duration-200 ${
+                                        showDeckSettings ? 'rotate-180' : ''
+                                    }`}
+                                    fill="currentColor"
+                                    viewBox="0 0 20 20"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                >
+                                    <path
+                                        fillRule="evenodd"
+                                        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                                        clipRule="evenodd"
+                                    ></path>
+                                </svg>
+                            </button>
+                            {showDeckSettings && (
+                                <div className="p-4 border-t border-gray-600">
+                                    <p className="text-gray-400 text-sm mb-4">各カードの「↑」または「↓」ボタンで並び替えができます。</p>
+                                    {cardTypes.map((cardType, index) => (
+                                        <div
+                                            key={cardType.id}
+                                            className={`grid grid-cols-1 sm:grid-cols-${selectedClass === 'Witch' ? '11' : '10'} gap-3 mb-4 p-4 bg-gray-800 rounded-md items-center`}
+                                        >
+                                            <div className="flex flex-col col-span-2 p-2 bg-gray-700 rounded-md">
+                                                <label htmlFor={`cardTypeName-${cardType.id}`} className="text-xs font-semibold text-gray-300 mb-1">カード名</label>
+                                                <input
+                                                    type="text"
+                                                    id={`cardTypeName-${cardType.id}`}
+                                                    value={cardType.name}
+                                                    onChange={(e) => updateCardType(cardType.id, 'name', e.target.value)}
+                                                    className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                />
+                                            </div>
+                                            <div className="flex flex-col p-2 bg-gray-700 rounded-md">
+                                                <label htmlFor={`cardTypeCount-${cardType.id}`} className="text-xs font-semibold text-gray-300 mb-1">採用枚数</label>
+                                                <input
+                                                    type="number"
+                                                    id={`cardTypeCount-${cardType.id}`}
+                                                    value={cardType.count}
+                                                    onChange={(e) => updateCardType(cardType.id, 'count', parseInt(e.target.value))}
+                                                    className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                    min="0"
+                                                    max="40" // Deck size limit
+                                                />
+                                            </div>
+                                            <div className="flex flex-col p-2 bg-gray-700 rounded-md">
+                                                <label htmlFor={`cardTypeCost-${cardType.id}`} className="text-xs font-semibold text-gray-300 mb-1">コスト</label>
+                                                <input
+                                                    type="number"
+                                                    id={`cardTypeCost-${cardType.id}`}
+                                                    value={cardType.cost}
+                                                    onChange={(e) => updateCardType(cardType.id, 'cost', parseInt(e.target.value))}
+                                                    className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                    min="0"
+                                                />
+                                            </div>
+                                            <div className="flex flex-col p-2 bg-gray-700 rounded-md">
+                                                <label htmlFor={`cardTypeDrawCount-${cardType.id}`} className="text-xs font-semibold text-gray-300 mb-1">ドロー枚数</label>
+                                                <input
+                                                    type="number"
+                                                    id={`cardTypeDrawCount-${cardType.id}`}
+                                                    value={cardType.drawCount}
+                                                    onChange={(e) => updateCardType(cardType.id, 'drawCount', parseInt(e.target.value))}
+                                                    className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                    min="0" // 0 if no draw
+                                                />
+                                            </div>
+                                            {/* マリガンキープ枚数の入力欄 */}
+                                            <div className="flex flex-col p-2 bg-gray-700 rounded-md">
+                                                <label htmlFor={`cardTypeMulliganKeepCount-${cardType.id}`} className="text-xs font-semibold text-gray-300 mb-1">マリガンキープ枚数</label>
+                                                <input
+                                                    type="number"
+                                                    id={`cardTypeMulliganKeepCount-${cardType.id}`}
+                                                    value={cardType.mulliganKeepCount}
+                                                    onChange={(e) => updateCardType(cardType.id, 'mulliganKeepCount', parseInt(e.target.value))}
+                                                    className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                    min="0"
+                                                    max="3" // Max 3 copies of a card in deck
+                                                />
+                                            </div>
+                                            {/* プレイ優先ターン (ボタン選択) */}
+                                            <div className="flex flex-col col-span-2 p-2 bg-gray-700 rounded-md">
+                                                <label className="text-xs font-semibold text-gray-300 mb-1">プレイ優先ターン</label>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {Array.from({ length: 10 }, (_, i) => i + 1).map(turn => ( // Changed maxTurns to 10
+                                                        <button
+                                                            key={turn}
+                                                            onClick={() => updateCardType(cardType.id, 'playPriorityTurns', turn)}
+                                                            className={`px-2 py-1 rounded-md text-xs font-medium transition duration-150
+                                                                ${cardType.playPriorityTurns.includes(turn)
+                                                                    ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                                                                    : 'bg-gray-600 hover:bg-gray-500 text-gray-200'
+                                                                }`}
+                                                        >
+                                                            {turn}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            {/* 追加スペルブースト量 (ウィッチ選択時のみ表示) */}
+                                            {selectedClass === 'Witch' && (
+                                                <div className="flex flex-col p-2 bg-gray-700 rounded-md">
+                                                    <label htmlFor={`cardTypeSpellboostAmount-${cardType.id}`} className="text-xs font-semibold text-gray-300 mb-1">追加スペルブースト量</label>
+                                                    <input
+                                                        type="number"
+                                                        id={`cardTypeSpellboostAmount-${cardType.id}`}
+                                                        value={cardType.spellboostIncreaseAmount}
+                                                        onChange={(e) => updateCardType(cardType.id, 'spellboostIncreaseAmount', parseInt(e.target.value) || 0)}
+                                                        className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                        min="0"
+                                                    />
+                                                </div>
+                                            )}
+                                            {/* カードタイプ選択と色付き文字 */}
+                                            <div className="flex flex-col p-2 bg-gray-700 rounded-md">
+                                                <label htmlFor={`cardType-${cardType.id}`} className="text-xs font-semibold text-gray-300 mb-1">カードタイプ</label>
+                                                <select
+                                                    id={`cardType-${cardType.id}`}
+                                                    value={cardType.type}
+                                                    onChange={(e) => updateCardType(cardType.id, 'type', e.target.value)}
+                                                    className={`p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm flex-grow ${getCardTypeTextColorClass(cardType.type)}`}
+                                                >
+                                                    <option value="フォロワー" className={getCardTypeTextColorClass('フォロワー')}>フォロワー</option>
+                                                    <option value="スペル" className={getCardTypeTextColorClass('スペル')}>スペル</option>
+                                                    <option value="アミュレット" className={getCardTypeTextColorClass('アミュレット')}>アミュレット</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex flex-col justify-center space-y-1">
+                                                <button
+                                                    onClick={() => moveCardTypeUp(cardType.id)}
+                                                    disabled={index === 0}
+                                                    className="bg-gray-500 hover:bg-gray-400 text-white font-bold py-1 px-2 rounded-md transition duration-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    ↑
+                                                </button>
+                                                <button
+                                                    onClick={() => moveCardTypeDown(cardType.id)}
+                                                    disabled={index === cardTypes.length - 1}
+                                                    className="bg-gray-500 hover:bg-gray-400 text-white font-bold py-1 px-2 rounded-md transition duration-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    ↓
+                                                </button>
+                                                <button
+                                                    onClick={() => removeCardType(cardType.id)}
+                                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2 rounded-md transition duration-200 text-sm"
+                                                >
+                                                    削除
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <button
+                                        onClick={addCardType}
+                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200 mt-2"
+                                    >
+                                        カードタイプを追加
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Target card selection */}
+                        <div className="flex flex-col">
+                            <label htmlFor="targetCardSelect" className="text-sm font-medium text-gray-300 mb-1">確率を計算する対象カード</label>
+                            <select
+                                id="targetCardSelect"
+                                value={selectedTargetCardTypeId || ''}
+                                onChange={(e) => setSelectedTargetCardTypeId(parseInt(e.target.value))}
+                                className="p-2 rounded-md bg-gray-700 border border-gray-600 focus:ring-purple-500 focus:border-purple-500"
+                            >
+                                {cardTypes.length === 0 && <option value="">カードタイプを設定してください</option>}
+                                {cardTypes.map(cardType => (
+                                    <option key={cardType.id} value={cardType.id} className={getCardTypeTextColorClass(cardType.type)}>
+                                        {cardType.name || `カードタイプ ${cardType.id}`}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Run simulation button */}
+                        <button
+                            onClick={runSimulation}
+                            className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-md transition duration-200 text-lg shadow-lg"
+                            disabled={loading}
+                        >
+                            {loading ? '計算中...' : '確率を計算'}
+                        </button>
+
+                        {message && (
+                            <div className="bg-red-800 text-red-200 p-3 rounded-md text-center">
+                                {message}
+                            </div>
+                        )}
+
+                        {/* Results display */}
+                        {results.length > 0 && (
+                            <div className="mt-8">
+                                <h2 className="text-2xl font-semibold text-purple-300 mb-4 text-center">計算結果</h2>
+                                <p className="text-gray-200 text-center mb-4">
+                                    選択したカードを各ターン開始時までに引く累積確率です。
+                                </p>
+                                <div className="overflow-x-auto rounded-lg shadow-md">
+                                    <table className="min-w-full bg-gray-700 text-white rounded-lg">
+                                        <thead>
+                                            <tr className="bg-gray-600">
+                                                <th className="py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider rounded-tl-lg">ターン</th>
+                                                {Array.from({ length: displayMaxCopies }).map((_, i) => (
+                                                    <th key={`current-prob-${i}`} className="py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider">
+                                                        今回の結果 ({i + 1}枚)
+                                                    </th>
+                                                ))}
+                                                {/* Only show comparison column if there's data to compare */}
+                                                {loadedSavedComparisonResults.length > 0 && Array.from({ length: displayMaxCopies }).map((_, i) => (
+                                                    <th key={`comp-prob-${i}`} className={`py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider`}>
+                                                        比較対象 ({i + 1}枚)
+                                                    </th>
+                                                ))}
+                                                {selectedClass === 'Witch' && (
+                                                    <>
+                                                        <th className="py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider">
+                                                            スペルブースト (ターン平均)
+                                                        </th>
+                                                        <th className="py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider rounded-tr-lg">
+                                                            スペルブースト (累計平均)
+                                                        </th>
+                                                    </>
+                                                )}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {results.map((res, index) => {
+                                                const loadedCompRes = loadedSavedComparisonResults.find(p => p.turn === res.turn);
+                                                return (
+                                                    <tr key={index} className={index % 2 === 0 ? 'bg-gray-700' : 'bg-gray-600'}>
+                                                        <td className="py-3 px-4 whitespace-nowrap text-sm">{res.turn}</td>
+                                                        {Array.from({ length: displayMaxCopies }).map((_, i) => (
+                                                            <td key={`current-data-${index}-${i}`} className={`py-3 px-4 whitespace-nowrap text-sm ${getProbabilityColorClass(res[`probabilityAtLeast${i + 1}`])}`}>
+                                                                {res[`probabilityAtLeast${i + 1}`]}
+                                                            </td>
+                                                        ))}
+                                                        {loadedSavedComparisonResults.length > 0 && Array.from({ length: displayMaxCopies }).map((_, i) => (
+                                                            <td key={`comp-data-${index}-${i}`} className={`py-3 px-4 whitespace-nowrap text-sm ${loadedCompRes && loadedCompRes[`probabilityAtLeast${i + 1}`] !== undefined ? getProbabilityColorClass(loadedCompRes[`probabilityAtLeast${i + 1}`]) : ''}`}>
+                                                                {loadedCompRes && loadedCompRes[`probabilityAtLeast${i + 1}`] !== undefined ? loadedCompRes[`probabilityAtLeast${i + 1}`] : '-'}
+                                                            </td>
+                                                        ))}
+                                                        {selectedClass === 'Witch' && (
+                                                            <>
+                                                                <td className="py-3 px-4 whitespace-nowrap text-sm">
+                                                                    {res.averageSpellsPerTurn !== undefined ? res.averageSpellsPerTurn : '-'}
+                                                                </td>
+                                                                <td className="py-3 px-4 whitespace-nowrap text-sm">
+                                                                    {res.averageCumulativeSpells !== undefined ? res.averageCumulativeSpells : '-'}
+                                                                </td>
+                                                            </>
+                                                        )}
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {/* Save current results */}
+                                <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                                    <input
+                                        type="text"
+                                        placeholder="保存する結果のメモ (オプション)"
+                                        value={saveDescription}
+                                        onChange={(e) => setSaveDescription(e.target.value)}
+                                        className="flex-1 p-2 rounded-md bg-gray-700 border border-gray-600 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                    />
+                                    <button
+                                        onClick={saveCurrentResultsLocally}
+                                        className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition duration-200 whitespace-nowrap"
+                                        disabled={loading || results.length === 0}
+                                    >
+                                        計算結果を保存 ({savedSimulations.length}/{maxSavedResults})
+                                    </button>
+                                </div>
+                                {/* Clear comparison results button */}
+                                {loadedSavedComparisonResults.length > 0 && (
+                                    <button
+                                        onClick={() => setLoadedSavedComparisonResults([])}
+                                        className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition duration-200 mt-4"
+                                    >
+                                        比較対象をクリア
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Saved Results Button (to open slide-in panel) */}
+                        <button
+                            onClick={() => setShowSavedResultsPanel(true)}
+                            className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition duration-200 mt-6"
+                        >
+                            保存済み結果 ({savedSimulations.length}件)
+                        </button>
+
+                        {/* Deck Card Settings Usage Section */}
+                        <div className="bg-gray-700 rounded-xl shadow-md overflow-hidden">
+                            <button
+                                className="w-full flex justify-between items-center p-4 text-lg font-semibold text-gray-100 hover:bg-gray-600 transition duration-200"
+                                onClick={() => setShowDeckSettingsUsage(!showDeckSettingsUsage)}
+                            >
+                                <span>デッキカード設定の使い方</span>
+                                <svg
+                                    className={`w-5 h-5 transition-transform duration-200 ${
+                                        showDeckSettingsUsage ? 'rotate-180' : ''
+                                    }`}
+                                    fill="currentColor"
+                                    viewBox="0 0 20 20"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                >
+                                    <path
+                                        fillRule="evenodd"
+                                        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                                        clipRule="evenodd"
+                                    ></path>
+                                </svg>
+                            </button>
+                            {showDeckSettingsUsage && (
+                                <div className="p-4 border-t border-gray-600">
+                                    <div className="bg-gray-700 p-6 rounded-lg shadow-md text-gray-200 space-y-4">
+                                        <p>「デッキカード設定」では、あなたのデッキに含まれるカードの種類と、それぞれのカードが持つ特性を設定します。</p>
+                                        <ul className="list-disc list-inside space-y-3 pl-4">
+                                            <li>
+                                                <strong>カード名:</strong> カードの名前を入力します。シミュレーション結果には直接影響しませんが、設定を管理しやすくするために設定してください。
+                                            </li>
+                                            <li>
+                                                <strong>採用枚数:</strong> デッキに採用するこのカードの枚数を入力します。デッキの合計枚数が{deckSize}枚になるように調整してください。
+                                            </li>
+                                            <li>
+                                                <strong>コスト:</strong> このカードをプレイするために必要なPP（プレイポイント）を入力します。
+                                            </li>
+                                            <li>
+                                                <strong>ドロー枚数:</strong> このカードをプレイしたときにデッキからドローするカードの枚数を入力します。ドロー効果がない場合は「0」を設定してください。
+                                            </li>
+                                            <li>
+                                                <strong>マリガンキープ枚数:</strong> マリガン時にこのカードを何枚キープするかを設定します。例えば「3」に設定すると、マリガン時にこのカードが手札にあれば最大3枚までキープしようとします。
+                                            </li>
+                                            <li>
+                                                <strong>プレイ優先ターン:</strong><br/>
+                                                このカードを特定のターンに優先してプレイしたい場合に、そのターン数をクリックして選択します。選択されたターンは紫色に変わります。再度クリックすると選択が解除されます。何も選択しない場合、そのカードはプレイ優先の対象になりません。設定したターンになると、このカードはドローカードよりも優先して使用されます（PPが足りる場合）。
+                                            </li>
+                                            <li>
+                                                <strong>カードタイプ:</strong><br/>
+                                                このカードのタイプを選択します。「フォロワー」は赤、「スペル」は紫、「アミュレット」は緑で表示されます。
+                                            </li>
+                                            {selectedClass === 'Witch' && (
+                                                <li>
+                                                    <strong>追加スペルブースト量 (ウィッチ専用):</strong><br/>
+                                                    ウィッチクラスを選択している場合のみ表示される項目です。このカードをプレイした際に、通常のスペルプレイによるスペルブースト1回に加えて、追加で増加するスペルブースト量を設定します。例えば「1」に設定すると、このカードをプレイするたびにスペルブーストが合計2回分増加します。
+                                                </li>
+                                            )}
+                                        </ul>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+
+                        {/* Calculation method display/hide button */}
+                        <button
+                            onClick={() => setShowCalculationMethod(!showCalculationMethod)}
+                            className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition duration-200 mt-6"
+                        >
+                            計算方法を{showCalculationMethod ? '非表示' : '表示'}
+                        </button>
+
+                        {/* Calculation method explanation */}
+                        {showCalculationMethod && (
+                            <div className="mt-4 border-t border-gray-700 pt-6">
+                                <h2 className="text-2xl font-semibold text-purple-300 mb-4 text-center">計算方法</h2>
+                                <div className="bg-gray-700 p-6 rounded-lg shadow-md text-gray-200 space-y-4">
+                                    <h3 className="text-xl font-semibold text-purple-200 mt-6 mb-2">シミュレーションのフロー:</h3>
+                                    <p>このツールでのカードを引く確率計算は、以下の流れでシミュレーションを行います。</p>
+                                    <ol className="list-decimal list-inside space-y-4 pl-4">
+                                        <li>
+                                            <strong>デッキの準備とシャッフル</strong>
+                                            <ul className="list-disc list-inside ml-4 mt-2 space-y-1">
+                                                <li>あなたが設定したカードの種類と枚数で{deckSize}枚の仮想デッキを作成</li>
+                                                <li>デッキをランダムにシャッフル</li>
+                                            </ul>
+                                        </li>
+                                        <div className="text-center text-purple-300 text-2xl my-2">↓</div>
+                                        <li>
+                                            <strong>最初の手札とマリガン</strong>
+                                            <ul className="list-disc list-inside ml-4 mt-2 space-y-1">
+                                                <li>デッキから4枚のカードを引く</li>
+                                                <li>設定された「マリガンキープ枚数」に基づいてカードをキープ</li>
+                                                <li>キープしなかったカードはデッキに戻し、その枚数分を再ドロー</li>
+                                                <li>この時点での対象カードの枚数を記録（0ターン目）</li>
+                                            </ul>
+                                        </li>
+                                        <div className="text-center text-purple-300 text-2xl my-2">↓</div>
+                                        <li>
+                                            <strong>ターンごとのゲーム進行 (1～{maxTurns}ターン)</strong>
+                                            <ul className="list-disc list-inside ml-4 mt-2 space-y-1">
+                                                <li>
+                                                    <strong>ターン開始時:</strong>
+                                                    <ul className="list-circle list-inside ml-4 mt-1">
+                                                        <li>PP（プレイポイント）が1増える（最大10）</li>
+                                                        <li>デッキから1枚カードを引く (手札が{handLimit}枚の場合、引いたカードは破棄)</li>
+                                                        <li>後攻の場合、指定ターンで追加PPを使用するか判断（AIが自動で判断）</li>
+                                                    </ul>
+                                                </li>
+                                                <li>
+                                                    <strong>カードの使用:</strong>
+                                                    <ul className="list-circle list-inside ml-4 mt-1">
+                                                        <li>手札の中から、現在のPPでプレイ可能なカードを以下の優先順位でプレイ</li>
+                                                        <ol className="list-decimal list-inside ml-6 mt-1">
+                                                            <li>現在のターンが「プレイ優先ターン」に設定されているカード（複数設定可）</li>
+                                                            <li>最もコストの高いカード</li>
+                                                            <li>ドロー効果を持つカード</li>
+                                                        </ol>
+                                                        <li>使用したカードは手札からなくなる</li>
+                                                        <li>ドロー効果でカードを引いた場合、手札に加える（手札が{handLimit}枚の場合、引いたカードは破棄）</li>
+                                                    </ul>
+                                                </li>
+                                                <li>
+                                                    <strong>ターン終了時:</strong>
+                                                    <ul className="list-circle list-inside ml-4 mt-1">
+                                                        <li>そのターンまでに引いた対象カードの合計枚数を記録</li>
+                                                    </ul>
+                                                </li>
+                                            </ul>
+                                        </li>
+                                        <div className="text-center text-purple-300 text-2xl my-2">↓</div>
+                                        <li>
+                                            <strong>結果のまとめ:</strong>
+                                            <ul className="list-disc list-inside ml-4 mt-2 space-y-1">
+                                                <li>上記1～3のシミュレーションを{numSimulations}回繰り返す</li>
+                                                <li>各ターン終了時までに、対象カードを「1枚以上」「2枚以上」「3枚以上」引けた回数を集計</li>
+                                                <li>集計した回数を総シミュレーション回数で割り、累積確率（パーセンテージ）として表示</li>
+                                                {selectedClass === 'Witch' && (
+                                                    <>
+                                                        <li>ウィッチクラス選択時は、各ターン終了時までにプレイされたスペルの合計数（追加スペルブースト量を含む）の平均値を「スペルブースト (ターン平均)」として、またそれまでの累計スペルブースト数の平均値を「スペルブースト (累計平均)」として表示します。</li>
+                                                    </>
+                                                )}
+                                            </ul>
+                                        </li>
+                                    </ol>
+                                    <p className="text-sm text-gray-400 mt-4">
+                                        このシミュレーションは、プレイヤーが常に最高の判断をするわけではなく、設定されたAIのルールに基づいて動きます。そのため、実際のゲームプレイとは少し違う結果になることもありますが、おおよその傾向や確率を知るのに役立ちます。
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Saved Results Slide-in Panel */}
+                    <div className={`slide-in-panel ${showSavedResultsPanel ? 'open' : ''}`}>
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-bold text-purple-400">保存済み結果</h2>
+                            <button
+                                onClick={() => setShowSavedResultsPanel(false)}
+                                className="text-gray-400 hover:text-gray-100 transition duration-200"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        {savedSimulations.length === 0 ? (
+                            <p className="text-gray-400 text-center">保存された結果はありません。</p>
+                        ) : (
+                            <ul className="space-y-4 flex-grow">
+                                {savedSimulations.map((item) => (
+                                    <li key={item.id} className="bg-gray-800 p-4 rounded-md shadow-sm flex flex-col gap-3">
+                                        <div className="flex-1">
+                                            <p className="font-semibold text-gray-100 text-lg">{item.description}</p>
+                                            <p className="text-xs text-gray-400">
+                                                {new Date(item.timestamp).toLocaleString()}
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                onClick={() => loadSavedResultForComparison(item)}
+                                                className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-3 rounded-md transition duration-200 text-sm flex-1"
+                                                disabled={loading}
+                                            >
+                                                比較対象として読み込む
+                                            </button>
+                                            <button
+                                                onClick={() => applySavedSettings(item)}
+                                                className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded-md transition duration-200 text-sm flex-1"
+                                                disabled={loading}
+                                            >
+                                                設定を適用
+                                            </button>
+                                            <button
+                                                onClick={() => deleteSavedResultLocally(item.id, item.description)}
+                                                className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-md transition duration-200 text-sm flex-1"
+                                                disabled={loading}
+                                            >
+                                                削除
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // Render the React application to the HTML root element
+        const root = window.ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
