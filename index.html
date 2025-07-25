@@ -159,8 +159,9 @@
                 loadStateFromLocalStorage('savedSimulations', [])
             );
             const [saveDescription, setSaveDescription] = useState('');
+            // 比較対象として読み込まれた保存済みアイテム全体を保持する新しいステート
+            const [comparisonSavedItem, setComparisonSavedItem] = useState(null); 
             const [showSavedResultsPanel, setShowSavedResultsPanel] = useState(false);
-            const [loadedSavedComparisonResults, setLoadedSavedComparisonResults] = useState([]);
 
             // New state for multiple saved decks
             const [savedDecks, setSavedDecks] = useState(() =>
@@ -855,9 +856,19 @@
                                         cumulativeCounts[set.id] += simulationCounts[set.id][t];
                                     });
                                 }
+                                let totalCombinationProbabilities = 0;
                                 activeCombinationSets.forEach(set => {
-                                    currentTurnData[`probability_${set.id}`] = (cumulativeCounts[set.id] / numSimulations * 100).toFixed(2);
+                                    const prob = (cumulativeCounts[set.id] / numSimulations * 100);
+                                    currentTurnData[`probability_${set.id}`] = prob.toFixed(2);
+                                    totalCombinationProbabilities += prob;
                                 });
+
+                                // 新しい平均確率の計算と追加
+                                if (activeCombinationSets.length > 0) {
+                                    currentTurnData.averageCombinationProbability = (totalCombinationProbabilities / activeCombinationSets.length).toFixed(2);
+                                } else {
+                                    currentTurnData.averageCombinationProbability = '0.00';
+                                }
                             }
 
                             if (isWitchClassSelected) {
@@ -953,7 +964,7 @@
             };
 
             const loadSavedResultForComparison = (savedItem) => {
-                setLoadedSavedComparisonResults(savedItem.resultsData);
+                setComparisonSavedItem(savedItem); // 保存されたアイテム全体をセット
                 setMessage(`「${savedItem.description}」を比較対象として読み込みました。`);
                 setShowSavedResultsPanel(false);
             };
@@ -995,8 +1006,9 @@
             const deleteSavedResultLocally = (id, description) => {
                 setSavedSimulations(prevSavedSimulations => {
                     const updatedSimulations = prevSavedSimulations.filter(item => item.id !== id);
-                    if (loadedSavedComparisonResults.length > 0 && prevSavedSimulations.find(item => item.id === id)?.resultsData === loadedSavedComparisonResults) {
-                        setLoadedSavedComparisonResults([]);
+                    // 削除されたアイテムが比較対象だった場合、比較対象をクリアする
+                    if (comparisonSavedItem && comparisonSavedItem.id === id) {
+                        setComparisonSavedItem(null);
                     }
                     setMessage(`「${description}」を削除しました。`);
                     return updatedSimulations;
@@ -1666,7 +1678,7 @@
                                                                 今回の結果 ({i + 1}枚以上)
                                                             </th>
                                                         ))}
-                                                        {loadedSavedComparisonResults.length > 0 && Array.from({ length: displayMaxCopies }).map((_, i) => (
+                                                        {comparisonSavedItem && comparisonSavedItem.calculationMode === CALC_MODE_SINGLE && Array.from({ length: Math.min(parseInt(comparisonSavedItem.cardTypesData.find(ct => ct.id === comparisonSavedItem.selectedTargetCardTypeId)?.count || 0), 3) }).map((_, i) => (
                                                             <th key={`comp-prob-${i}`} className={`py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider`}>
                                                                 比較対象 ({i + 1}枚以上)
                                                             </th>
@@ -1679,10 +1691,26 @@
                                                                 {set.name} (%)
                                                             </th>
                                                         ))}
-                                                        {loadedSavedComparisonResults.length > 0 && (
-                                                            <th className={`py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider`}>
-                                                                比較対象 (%)
+                                                        {/* 新しい平均確率のヘッダー */}
+                                                        {combinationSets.filter(set => set.isActive).length > 1 && (
+                                                            <th className="py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider">
+                                                                平均確率 (%)
                                                             </th>
+                                                        )}
+                                                        {comparisonSavedItem && comparisonSavedItem.calculationMode === CALC_MODE_COMBINATION && (
+                                                            <>
+                                                                {comparisonSavedItem.combinationSetsData.filter(set => set.isActive).map(set => (
+                                                                    <th key={`comp-header-${set.id}`} className={`py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider`}>
+                                                                        比較対象 ({set.name} %)
+                                                                    </th>
+                                                                ))}
+                                                                {/* 比較対象の平均確率ヘッダー */}
+                                                                {comparisonSavedItem.combinationSetsData.filter(set => set.isActive).length > 1 && (
+                                                                    <th className={`py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider`}>
+                                                                        比較対象 (平均 %)
+                                                                    </th>
+                                                                )}
+                                                            </>
                                                         )}
                                                     </>
                                                 )}
@@ -1705,7 +1733,7 @@
                                         </thead>
                                         <tbody>
                                             {results.map((res, index) => {
-                                                const loadedCompRes = loadedSavedComparisonResults.find(p => p.turn === res.turn);
+                                                const loadedCompRes = comparisonSavedItem?.resultsData.find(p => p.turn === res.turn);
                                                 return (
                                                     <tr key={index} className={index % 2 === 0 ? 'bg-gray-700' : 'bg-gray-600'}>
                                                         <td className="py-3 px-4 whitespace-nowrap text-sm">{res.turn}</td>
@@ -1716,11 +1744,14 @@
                                                                         {res[`probabilityAtLeast${i + 1}`]}
                                                                     </td>
                                                                 ))}
-                                                                {loadedSavedComparisonResults.length > 0 && Array.from({ length: displayMaxCopies }).map((_, i) => (
-                                                                    <td key={`comp-data-${index}-${i}`} className={`py-3 px-4 whitespace-nowrap text-sm ${loadedCompRes && loadedCompRes[`probabilityAtLeast${i + 1}`] !== undefined ? getProbabilityColorClass(loadedCompRes[`probabilityAtLeast${i + 1}`]) : ''}`}>
-                                                                        {loadedCompRes && loadedCompRes[`probabilityAtLeast${i + 1}`] !== undefined ? loadedCompRes[`probabilityAtLeast${i + 1}`] : '-'}
-                                                                    </td>
-                                                                ))}
+                                                                {comparisonSavedItem && comparisonSavedItem.calculationMode === CALC_MODE_SINGLE && Array.from({ length: Math.min(parseInt(comparisonSavedItem.cardTypesData.find(ct => ct.id === comparisonSavedItem.selectedTargetCardTypeId)?.count || 0), 3) }).map((_, i) => {
+                                                                    const probValue = loadedCompRes && loadedCompRes[`probabilityAtLeast${i + 1}`] !== undefined ? loadedCompRes[`probabilityAtLeast${i + 1}`] : '-';
+                                                                    return (
+                                                                        <td key={`comp-data-${index}-${i}`} className={`py-3 px-4 whitespace-nowrap text-sm ${getProbabilityColorClass(probValue)}`}>
+                                                                            {probValue}
+                                                                        </td>
+                                                                    );
+                                                                })}
                                                             </>
                                                         ) : (
                                                             <>
@@ -1729,10 +1760,30 @@
                                                                         {res[`probability_${set.id}`]}
                                                                     </td>
                                                                 ))}
-                                                                {loadedSavedComparisonResults.length > 0 && (
-                                                                    <td className={`py-3 px-4 whitespace-nowrap text-sm ${loadedCompRes && loadedCompRes.probability !== undefined ? getProbabilityColorClass(loadedCompRes.probability) : ''}`}>
-                                                                        {loadedCompRes && loadedCompRes.probability !== undefined ? loadedCompRes.probability : '-'}
+                                                                {/* 新しい平均確率のセル */}
+                                                                {combinationSets.filter(set => set.isActive).length > 1 && (
+                                                                    <td className={`py-3 px-4 whitespace-nowrap text-sm ${getProbabilityColorClass(res.averageCombinationProbability)}`}>
+                                                                        {res.averageCombinationProbability}
                                                                     </td>
+                                                                )}
+                                                                {comparisonSavedItem && comparisonSavedItem.calculationMode === CALC_MODE_COMBINATION && (
+                                                                    <>
+                                                                        {comparisonSavedItem.combinationSetsData.filter(set => set.isActive).map(compSet => {
+                                                                            const probKey = `probability_${compSet.id}`;
+                                                                            const probValue = loadedCompRes && loadedCompRes[probKey] !== undefined ? loadedCompRes[probKey] : '-';
+                                                                            return (
+                                                                                <td key={`comp-data-${compSet.id}-${index}`} className={`py-3 px-4 whitespace-nowrap text-sm ${getProbabilityColorClass(probValue)}`}>
+                                                                                    {probValue}
+                                                                                </td>
+                                                                            );
+                                                                        })}
+                                                                        {/* 比較対象の平均確率セル */}
+                                                                        {comparisonSavedItem.combinationSetsData.filter(set => set.isActive).length > 1 && (
+                                                                            <td className={`py-3 px-4 whitespace-nowrap text-sm ${loadedCompRes && loadedCompRes.averageCombinationProbability !== undefined ? getProbabilityColorClass(loadedCompRes.averageCombinationProbability) : ''}`}>
+                                                                                {loadedCompRes && loadedCompRes.averageCombinationProbability !== undefined ? loadedCompRes.averageCombinationProbability : '-'}
+                                                                            </td>
+                                                                        )}
+                                                                    </>
                                                                 )}
                                                             </>
                                                         )}
@@ -1781,9 +1832,9 @@
                                     </button>
                                 </div>
                                 {/* Clear comparison results button */}
-                                {loadedSavedComparisonResults.length > 0 && (
+                                {comparisonSavedItem && (
                                     <button
-                                        onClick={() => setLoadedSavedComparisonResults([])}
+                                        onClick={() => setComparisonSavedItem(null)}
                                         className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition duration-200 mt-4"
                                     >
                                         比較対象をクリア
@@ -2093,7 +2144,10 @@
                                                 {calculationMode === CALC_MODE_SINGLE ? (
                                                     <li>各ターン終了時までに、対象カードを「1枚以上」「2枚以上」「3枚以上」引けた回数を集計</li>
                                                 ) : (
-                                                    <li>各ターン終了時までに、有効な各組み合わせセットが揃った回数を集計</li>
+                                                    <>
+                                                        <li>各ターン終了時までに、有効な各組み合わせセットが揃った回数を集計</li>
+                                                        <li>すべての有効な組み合わせセットの確率を合計し、その数で割って平均確率を算出</li>
+                                                    </>
                                                 )}
                                                 <li>集計した回数を総シミュレーション回数で割り、累積確率（パーセンテージ）として表示</li>
                                                 {selectedClass === 'Witch' && (
@@ -2170,6 +2224,9 @@
                                             <ul className="list-circle list-inside ml-4">
                                                 <li>
                                                     <strong>「[組み合わせ名] (%)」:</strong> 設定した組み合わせ条件が、そのターンまでに累計で満たされている確率を示します。
+                                                </li>
+                                                <li>
+                                                    <strong>「平均確率 (%)」:</strong> すべての有効な組み合わせセットの確率を合計し、その数で割った平均値です。
                                                 </li>
                                                 <li>
                                                     <strong>「X枚丁度」:</strong> そのカードがX枚ちょうど手札に来た場合にのみ条件を満たしたと判定されます。特に「0枚丁度」は、そのカードが手札に一度も来なかった場合の確率を計算します。
