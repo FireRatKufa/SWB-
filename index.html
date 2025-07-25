@@ -3,10 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FR_Kufa作|確率計算機</title>
-    <!-- Tailwind CSS CDN -->
+    <title>FR_Kufa作|確率計算機β版</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Inter Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -34,10 +32,8 @@
             transform: translateX(0);
         }
     </style>
-    <!-- React & ReactDOM CDN -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel Standalone CDN for JSX in browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-gray-900 text-white">
@@ -58,6 +54,8 @@
             const handLimit = 9;
             // Max number of locally saved results
             const maxSavedResults = 10;
+            // Max number of locally saved decks
+            const maxSavedDecks = 10;
 
             // Calculation Modes
             const CALC_MODE_SINGLE = 'single';
@@ -85,15 +83,16 @@
                 }
             };
 
+            // Default card types for initial load
+            const defaultCardTypes = [
+                { id: 1, name: 'キーカードA', count: 3, cost: 3, drawCount: 0, mulliganKeepCount: 1, playPriorityTurns: [5], type: 'フォロワー', spellboostIncreaseAmount: 0 },
+                { id: 2, name: 'ドローカードA', count: 3, cost: 1, drawCount: 1, mulliganKeepCount: 0, playPriorityTurns: [], type: 'スペル', spellboostIncreaseAmount: 0 },
+                { id: 3, name: 'その他カード', count: 34, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'アミュレット', spellboostIncreaseAmount: 0 },
+            ];
+
             // Simulation settings state
-            // cardTypesのみlocalStorageから読み込む
-            const [cardTypes, setCardTypes] = useState(() =>
-                loadStateFromLocalStorage('cardTypes', [
-                    { id: 1, name: 'キーカードA', count: 3, cost: 3, drawCount: 0, mulliganKeepCount: 1, playPriorityTurns: [5], type: 'フォロワー', spellboostIncreaseAmount: 0 },
-                    { id: 2, name: 'ドローカードA', count: 3, cost: 1, drawCount: 1, mulliganKeepCount: 0, playPriorityTurns: [], type: 'スペル', spellboostIncreaseAmount: 0 },
-                    { id: 3, name: 'その他カード', count: 34, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'アミュレット', spellboostIncreaseAmount: 0 },
-                ])
-            );
+            // cardTypesはデフォルト値で初期化し、保存済みデッキからロードする機能を提供する
+            const [cardTypes, setCardTypes] = useState(defaultCardTypes);
             // その他の設定は初期値に戻す
             const [calculationMode, setCalculationMode] = useState(CALC_MODE_COMBINATION);
             const [selectedTargetCardTypeId, setSelectedTargetCardTypeId] = useState(cardTypes[0]?.id || null);
@@ -117,6 +116,7 @@
             const [showDeckSettings, setShowDeckSettings] = useState(true);
             const [showDeckSettingsUsage, setShowDeckSettingsUsage] = useState(false);
             const [showCalculationMethod, setShowCalculationMethod] = useState(true);
+            const [showDeckManagement, setShowDeckManagement] = useState(true); // New section for deck management
             
             // Simulation results and UI state
             const [results, setResults] = useState([]);
@@ -130,6 +130,13 @@
             const [saveDescription, setSaveDescription] = useState('');
             const [showSavedResultsPanel, setShowSavedResultsPanel] = useState(false);
             const [loadedSavedComparisonResults, setLoadedSavedComparisonResults] = useState([]);
+
+            // New state for multiple saved decks
+            const [savedDecks, setSavedDecks] = useState(() =>
+                loadStateFromLocalStorage('savedDecks', [])
+            );
+            const [currentDeckSaveName, setCurrentDeckSaveName] = useState(''); // Name for saving the current deck
+            const [showSavedDecksPanel, setShowSavedDecksPanel] = useState(false); // Panel for saved decks
 
             // Calculate total card count in deck in real-time
             const totalCurrentDeckCount = cardTypes.reduce((sum, ct) => sum + (parseInt(ct.count) || 0), 0);
@@ -166,15 +173,15 @@
                 });
             }, [cardTypes, selectedTargetCardTypeId]);
 
-            // cardTypesが変更されたときにlocalStorageに保存する
-            useEffect(() => {
-                localStorage.setItem('cardTypes', JSON.stringify(cardTypes));
-            }, [cardTypes]);
-
             // savedSimulationsが変更されたときにlocalStorageに保存する
             useEffect(() => {
                 localStorage.setItem('savedSimulations', JSON.stringify(savedSimulations));
             }, [savedSimulations]);
+
+            // savedDecksが変更されたときにlocalStorageに保存する
+            useEffect(() => {
+                localStorage.setItem('savedDecks', JSON.stringify(savedDecks));
+            }, [savedDecks]);
 
 
             const addCardType = () => {
@@ -794,7 +801,7 @@
                 }
             };
 
-            // --- Local Save/Load/Delete Operations ---
+            // --- Local Save/Load/Delete Operations (Simulation Results) ---
             const saveCurrentResultsLocally = () => {
                 if (results.length === 0) {
                     setMessage("保存する計算結果がありません。先に計算を実行してください。");
@@ -841,7 +848,7 @@
                     setCardTypes(savedItem.cardTypesData);
                     setIsFirstPlayer(savedItem.gameSettingsData.isFirstPlayer);
                     setExtraPpTurn1(savedItem.gameSettingsData.extraPpTurn1);
-                    setExtraPpTurn2(savedItem.gameSettingsData.extraPpTurn2);
+                    setExtraPpTurn2(savedItem.gameSettingsData.extraPpPpTurn2);
                     setSelectedClass(savedItem.gameSettingsData.selectedClass);
                     setCalculationMode(savedItem.calculationMode || CALC_MODE_COMBINATION); // モードもロード
                     setSelectedTargetCardTypeId(savedItem.selectedTargetCardTypeId || (savedItem.cardTypesData[0]?.id || null)); // 単一カード用
@@ -880,6 +887,77 @@
                 });
             };
 
+            // --- New Deck Management Functions ---
+            const saveCurrentDeck = () => {
+                if (!currentDeckSaveName.trim()) {
+                    setMessage("デッキ名を指定してください。");
+                    return;
+                }
+                if (totalCurrentDeckCount !== deckSize) {
+                    setMessage(`デッキの合計枚数が${deckSize}枚ではありません。現在: ${totalCurrentDeckCount}枚。保存前に調整してください。`);
+                    return;
+                }
+
+                const newDeck = {
+                    id: Date.now(),
+                    name: currentDeckSaveName,
+                    cardTypes: cardTypes,
+                    timestamp: Date.now(),
+                };
+
+                setSavedDecks(prevSavedDecks => {
+                    let updatedDecks = [newDeck, ...prevSavedDecks];
+                    if (updatedDecks.length > maxSavedDecks) {
+                        updatedDecks = updatedDecks.slice(0, maxSavedDecks);
+                    }
+                    setMessage(`デッキ「${currentDeckSaveName}」を保存しました！`);
+                    setCurrentDeckSaveName('');
+                    return updatedDecks;
+                });
+            };
+
+            const loadSavedDeck = (deckToLoad) => {
+                setLoading(true);
+                try {
+                    setCardTypes(deckToLoad.cardTypes);
+                    // Reset calculation mode and related settings to default or adapt if needed
+                    // For simplicity, we'll reset them to default when loading only cardTypes
+                    setCalculationMode(CALC_MODE_COMBINATION); // Default to combination mode
+                    setSelectedTargetCardTypeId(deckToLoad.cardTypes[0]?.id || null); // Set to first card of loaded deck
+                    setCombinationSets([ // Reset combination sets
+                        {
+                            id: Date.now(),
+                            name: '組み合わせ1',
+                            isActive: true,
+                            conditions: [
+                                { id: Date.now() + 1, cardTypeId: deckToLoad.cardTypes[0]?.id || null, targetCount: 1, matchType: MATCH_TYPE_AT_LEAST, matchLocation: MATCH_LOCATION_HAND }
+                            ]
+                        }
+                    ]);
+                    setIsFirstPlayer(true);
+                    setExtraPpTurn1(5);
+                    setExtraPpTurn2(6);
+                    setSelectedClass('');
+
+                    setMessage(`デッキ「${deckToLoad.name}」を読み込みました。`);
+                    setShowSavedDecksPanel(false);
+                } catch (e) {
+                    console.error("Error loading saved deck:", e);
+                    setMessage("保存済みデッキの読み込み中にエラーが発生しました。");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const deleteSavedDeck = (id, name) => {
+                setSavedDecks(prevSavedDecks => {
+                    const updatedDecks = prevSavedDecks.filter(deck => deck.id !== id);
+                    setMessage(`デッキ「${name}」を削除しました。`);
+                    return updatedDecks;
+                });
+            };
+
+
             // 単一カードモードの場合の表示枚数
             const selectedTargetCard = cardTypes.find(ct => ct.id === selectedTargetCardTypeId);
             const maxTargetCopiesInDeck = parseInt(selectedTargetCard?.count || 0);
@@ -888,7 +966,7 @@
             return (
                 <div className="p-4 sm:p-6 md:p-8 bg-gray-900 text-white min-h-screen font-inter">
                     <h1 className="text-3xl sm:text-4xl font-bold text-center mb-6 sm:mb-8 text-purple-400">
-                        確率、どんなもん？
+                        確率、どんなもん？β版
                     </h1>
 
                     <div className="max-w-full mx-auto bg-gray-800 rounded-xl shadow-lg p-6 sm:p-8 space-y-6">
@@ -1493,8 +1571,83 @@
                             onClick={() => setShowSavedResultsPanel(true)}
                             className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition duration-200 mt-6"
                         >
-                            保存済み結果 ({savedSimulations.length}件)
+                            保存済み計算結果 ({savedSimulations.length}件)
                         </button>
+
+                        {/* Deck Management Section */}
+                        <div className="bg-gray-700 rounded-xl shadow-md overflow-hidden">
+                            <button
+                                className="w-full flex justify-between items-center p-4 text-lg font-semibold text-gray-100 hover:bg-gray-600 transition duration-200"
+                                onClick={() => setShowDeckManagement(!showDeckManagement)}
+                            >
+                                <span>デッキの保存と管理 ({savedDecks.length} / {maxSavedDecks}件)</span>
+                                <svg
+                                    className={`w-5 h-5 transition-transform duration-200 ${
+                                        showDeckManagement ? 'rotate-180' : ''
+                                    }`}
+                                    fill="currentColor"
+                                    viewBox="0 0 20 20"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                >
+                                    <path
+                                        fillRule="evenodd"
+                                        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                                        clipRule="evenodd"
+                                    ></path>
+                                </svg>
+                            </button>
+                            {showDeckManagement && (
+                                <div className="p-4 border-t border-gray-600 space-y-4">
+                                    <div className="flex flex-col sm:flex-row gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="現在のデッキを保存する名前"
+                                            value={currentDeckSaveName}
+                                            onChange={(e) => setCurrentDeckSaveName(e.target.value)}
+                                            className="flex-1 p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                        />
+                                        <button
+                                            onClick={saveCurrentDeck}
+                                            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition duration-200 whitespace-nowrap"
+                                            disabled={loading || !currentDeckSaveName.trim() || savedDecks.length >= maxSavedDecks}
+                                        >
+                                            現在のデッキを保存
+                                        </button>
+                                    </div>
+                                    {savedDecks.length === 0 ? (
+                                        <p className="text-gray-400 text-center mt-4">保存されたデッキはありません。</p>
+                                    ) : (
+                                        <ul className="space-y-3 mt-4">
+                                            {savedDecks.map((deck) => (
+                                                <li key={deck.id} className="bg-gray-800 p-3 rounded-md shadow-sm flex flex-col sm:flex-row items-center justify-between gap-2">
+                                                    <div className="flex-1 text-gray-100 font-semibold truncate">
+                                                        {deck.name}
+                                                        <span className="block text-xs text-gray-400 font-normal">{new Date(deck.timestamp).toLocaleString()}</span>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-2 justify-end">
+                                                        <button
+                                                            onClick={() => loadSavedDeck(deck)}
+                                                            className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-3 rounded-md transition duration-200 text-sm"
+                                                            disabled={loading}
+                                                        >
+                                                            読み込む
+                                                        </button>
+                                                        <button
+                                                            onClick={() => deleteSavedDeck(deck.id, deck.name)}
+                                                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md transition duration-200 text-sm"
+                                                            disabled={loading}
+                                                        >
+                                                            削除
+                                                        </button>
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
 
                         {/* Deck Card Settings Usage Section */}
                         <div className="bg-gray-700 rounded-xl shadow-md overflow-hidden">
@@ -1667,7 +1820,7 @@
                     {/* Saved Results Slide-in Panel */}
                     <div className={`slide-in-panel ${showSavedResultsPanel ? 'open' : ''}`}>
                         <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-2xl font-bold text-purple-400">保存済み結果</h2>
+                            <h2 className="text-2xl font-bold text-purple-400">保存済み計算結果</h2>
                             <button
                                 onClick={() => setShowSavedResultsPanel(false)}
                                 className="text-gray-400 hover:text-gray-100 transition duration-200"
