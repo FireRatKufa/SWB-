@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>何ターン目に引ける君 (HTML版)</title>
+    <title>FR_Kufa作|確率計算機</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Inter Font -->
@@ -63,20 +63,50 @@
             const CALC_MODE_SINGLE = 'single';
             const CALC_MODE_COMBINATION = 'combination';
 
+            // Match Types for combination mode
+            const MATCH_TYPE_AT_LEAST = 'atLeast';
+            const MATCH_TYPE_EXACTLY = 'exactly';
+
+            // Match Locations for combination mode
+            const MATCH_LOCATION_HAND = 'hand';
+            const MATCH_LOCATION_DECK = 'deck';
+
+            // localStorageから初期状態を読み込むヘルパー関数
+            const loadStateFromLocalStorage = (key, defaultValue) => {
+                try {
+                    const serializedState = localStorage.getItem(key);
+                    if (serializedState === null) {
+                        return defaultValue;
+                    }
+                    return JSON.parse(serializedState);
+                } catch (error) {
+                    console.error("Error loading state from localStorage", error);
+                    return defaultValue;
+                }
+            };
+
             // Simulation settings state
-            const [cardTypes, setCardTypes] = useState([
-                { id: 1, name: 'キーカードA', count: 3, cost: 3, drawCount: 0, mulliganKeepCount: 1, playPriorityTurns: [5], type: 'フォロワー', spellboostIncreaseAmount: 0 },
-                { id: 2, name: 'ドローカードA', count: 3, cost: 1, drawCount: 1, mulliganKeepCount: 0, playPriorityTurns: [], type: 'スペル', spellboostIncreaseAmount: 0 },
-                { id: 3, name: 'その他カード', count: 34, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'アミュレット', spellboostIncreaseAmount: 0 },
-            ]);
-            // 新しいステート: 計算モード
-            const [calculationMode, setCalculationMode] = useState(CALC_MODE_COMBINATION); // デフォルトは組み合わせ確率
-            // 単一カードモード用の対象カードID
+            // cardTypesのみlocalStorageから読み込む
+            const [cardTypes, setCardTypes] = useState(() =>
+                loadStateFromLocalStorage('cardTypes', [
+                    { id: 1, name: 'キーカードA', count: 3, cost: 3, drawCount: 0, mulliganKeepCount: 1, playPriorityTurns: [5], type: 'フォロワー', spellboostIncreaseAmount: 0 },
+                    { id: 2, name: 'ドローカードA', count: 3, cost: 1, drawCount: 1, mulliganKeepCount: 0, playPriorityTurns: [], type: 'スペル', spellboostIncreaseAmount: 0 },
+                    { id: 3, name: 'その他カード', count: 34, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'アミュレット', spellboostIncreaseAmount: 0 },
+                ])
+            );
+            // その他の設定は初期値に戻す
+            const [calculationMode, setCalculationMode] = useState(CALC_MODE_COMBINATION);
             const [selectedTargetCardTypeId, setSelectedTargetCardTypeId] = useState(cardTypes[0]?.id || null);
-            // 組み合わせモード用の対象カード組み合わせ
-            const [selectedTargetCombinations, setSelectedTargetCombinations] = useState([
-                { id: Date.now(), cardTypeId: cardTypes[0]?.id || null, minCount: 1 }
-            ]); 
+            const [combinationSets, setCombinationSets] = useState([
+                {
+                    id: Date.now(),
+                    name: '組み合わせ1',
+                    isActive: true,
+                    conditions: [
+                        { id: Date.now() + 1, cardTypeId: cardTypes[0]?.id || null, targetCount: 1, matchType: MATCH_TYPE_AT_LEAST, matchLocation: MATCH_LOCATION_HAND }
+                    ]
+                }
+            ]);
             const [isFirstPlayer, setIsFirstPlayer] = useState(true);
             const [extraPpTurn1, setExtraPpTurn1] = useState(5);
             const [extraPpTurn2, setExtraPpTurn2] = useState(6);
@@ -93,8 +123,10 @@
             const [loading, setLoading] = useState(false);
             const [message, setMessage] = useState('');
 
-            // Locally saved results state
-            const [savedSimulations, setSavedSimulations] = useState([]);
+            // Locally saved results state (これは引き続きlocalStorageに保存する)
+            const [savedSimulations, setSavedSimulations] = useState(() =>
+                loadStateFromLocalStorage('savedSimulations', [])
+            );
             const [saveDescription, setSaveDescription] = useState('');
             const [showSavedResultsPanel, setShowSavedResultsPanel] = useState(false);
             const [loadedSavedComparisonResults, setLoadedSavedComparisonResults] = useState([]);
@@ -102,7 +134,7 @@
             // Calculate total card count in deck in real-time
             const totalCurrentDeckCount = cardTypes.reduce((sum, ct) => sum + (parseInt(ct.count) || 0), 0);
 
-            // selectedTargetCardTypeIdとselectedTargetCombinationsのcardTypeIdがcardTypesの更新に追従するように
+            // selectedTargetCardTypeIdとcombinationSetsのcardTypeIdがcardTypesの更新に追従するように
             useEffect(() => {
                 if (!selectedTargetCardTypeId && cardTypes.length > 0) {
                     setSelectedTargetCardTypeId(cardTypes[0].id);
@@ -111,20 +143,38 @@
                     setSelectedTargetCardTypeId(cardTypes.length > 0 ? cardTypes[0].id : null);
                 }
 
-                setSelectedTargetCombinations(prevCombinations => {
-                    // cardTypesが空なら、すべての組み合わせのcardTypeIdをnullに設定
+                setCombinationSets(prevSets => {
                     if (cardTypes.length === 0) {
-                        return prevCombinations.map(combo => ({ ...combo, cardTypeId: null }));
+                        return prevSets.map(set => ({
+                            ...set,
+                            conditions: set.conditions.map(cond => ({ ...cond, cardTypeId: null }))
+                        }));
                     }
-                    return prevCombinations.map(combo => {
-                        // もしcardTypeIdがcardTypesに存在しないなら、最初のカードに設定
-                        if (!cardTypes.some(ct => ct.id === combo.cardTypeId)) {
-                            return { ...combo, cardTypeId: cardTypes[0].id };
-                        }
-                        return combo;
-                    });
+                    return prevSets.map(set => ({
+                        ...set,
+                        conditions: set.conditions.map(cond => {
+                            if (!cardTypes.some(ct => ct.id === cond.cardTypeId)) {
+                                return { ...cond, cardTypeId: cardTypes[0].id };
+                            }
+                            // matchLocationが未定義の場合のデフォルト設定 (既存の保存データ対応)
+                            if (cond.matchLocation === undefined) {
+                                return { ...cond, matchLocation: MATCH_LOCATION_HAND };
+                            }
+                            return cond;
+                        })
+                    }));
                 });
             }, [cardTypes, selectedTargetCardTypeId]);
+
+            // cardTypesが変更されたときにlocalStorageに保存する
+            useEffect(() => {
+                localStorage.setItem('cardTypes', JSON.stringify(cardTypes));
+            }, [cardTypes]);
+
+            // savedSimulationsが変更されたときにlocalStorageに保存する
+            useEffect(() => {
+                localStorage.setItem('savedSimulations', JSON.stringify(savedSimulations));
+            }, [savedSimulations]);
 
 
             const addCardType = () => {
@@ -175,33 +225,100 @@
                 });
             };
 
-            // 組み合わせ対象カードの追加/更新/削除
-            const addTargetCombination = () => {
-                setSelectedTargetCombinations(prev => [...prev, { id: Date.now(), cardTypeId: cardTypes[0]?.id || null, minCount: 1 }]);
-            };
-
-            const updateTargetCombination = (id, field, value) => {
-                setSelectedTargetCombinations(prev => prev.map(combo => {
-                    if (combo.id === id) {
-                        return { ...combo, [field]: value };
+            // 組み合わせセットの追加/更新/削除
+            const addCombinationSet = () => {
+                setCombinationSets(prevSets => [
+                    ...prevSets,
+                    {
+                        id: Date.now(),
+                        name: `組み合わせ${prevSets.length + 1}`,
+                        isActive: true,
+                        conditions: [
+                            { id: Date.now() + 1, cardTypeId: cardTypes[0]?.id || null, targetCount: 1, matchType: MATCH_TYPE_AT_LEAST, matchLocation: MATCH_LOCATION_HAND }
+                        ]
                     }
-                    return combo;
-                }));
+                ]);
             };
 
-            const removeTargetCombination = (id) => {
-                setSelectedTargetCombinations(prev => prev.filter(combo => combo.id !== id));
+            const updateCombinationSetName = (setId, newName) => {
+                setCombinationSets(prevSets => prevSets.map(set =>
+                    set.id === setId ? { ...set, name: newName } : set
+                ));
+            };
+
+            const toggleCombinationSetActivity = (setId) => {
+                setCombinationSets(prevSets => prevSets.map(set =>
+                    set.id === setId ? { ...set, isActive: !set.isActive } : set
+                ));
+            };
+
+            const removeCombinationSet = (setId) => {
+                setCombinationSets(prevSets => prevSets.filter(set => set.id !== setId));
+            };
+
+            // 組み合わせセット内の条件の追加/更新/削除
+            const addCombinationCondition = (setId) => {
+                setCombinationSets(prevSets => prevSets.map(set =>
+                    set.id === setId
+                        ? {
+                            ...set,
+                            conditions: [...set.conditions, { id: Date.now(), cardTypeId: cardTypes[0]?.id || null, targetCount: 1, matchType: MATCH_TYPE_AT_LEAST, matchLocation: MATCH_LOCATION_HAND }]
+                        }
+                        : set
+                ));
+            };
+
+            const updateCombinationCondition = (setId, conditionId, field, value) => {
+                setCombinationSets(prevSets => prevSets.map(set =>
+                    set.id === setId
+                        ? {
+                            ...set,
+                            conditions: set.conditions.map(cond =>
+                                cond.id === conditionId ? { ...cond, [field]: value } : cond
+                            )
+                        }
+                        : set
+                ));
+            };
+
+            const removeCombinationCondition = (setId, conditionId) => {
+                setCombinationSets(prevSets => prevSets.map(set =>
+                    set.id === setId
+                        ? {
+                            ...set,
+                            conditions: set.conditions.filter(cond => cond.id !== conditionId)
+                        }
+                        : set
+                ));
             };
 
             // 累計で手札に来たカードの枚数に基づいて組み合わせが揃ったかチェックするヘルパー関数
-            const checkCombinationDrawnCumulatively = (drawnCounts, combinations) => {
-                if (combinations.length === 0) return false;
+            const checkCombinationDrawnCumulatively = (drawnCounts, conditions) => {
+                if (conditions.length === 0) return false;
 
-                for (const combo of combinations) {
-                    if (combo.cardTypeId === null) return false;
-                    const actualCount = drawnCounts[combo.cardTypeId] || 0;
-                    if (actualCount < combo.minCount) {
-                        return false;
+                for (const cond of conditions) {
+                    if (cond.cardTypeId === null) return false;
+                    const cardInDeckData = cardTypes.find(ct => ct.id === cond.cardTypeId);
+                    if (!cardInDeckData) return false; // カードデータが見つからない場合は無効
+
+                    const initialCardCount = parseInt(cardInDeckData.count) || 0;
+                    const actualDrawnCount = drawnCounts[cond.cardTypeId] || 0;
+                    let actualCountToCheck = 0;
+
+                    if (cond.matchLocation === MATCH_LOCATION_HAND) {
+                        actualCountToCheck = actualDrawnCount; // 手札に来た枚数
+                    } else if (cond.matchLocation === MATCH_LOCATION_DECK) {
+                        actualCountToCheck = initialCardCount - actualDrawnCount; // デッキに残っている枚数
+                    }
+                    
+                    if (cond.matchType === MATCH_TYPE_AT_LEAST) {
+                        if (actualCountToCheck < cond.targetCount) {
+                            return false;
+                        }
+                    } else if (cond.matchType === MATCH_TYPE_EXACTLY) {
+                        if (actualCountToCheck !== cond.targetCount) {
+                            return false;
+                        }
                     }
                 }
                 return true;
@@ -231,27 +348,36 @@
                         return;
                     }
                 } else if (calculationMode === CALC_MODE_COMBINATION) {
-                    if (selectedTargetCombinations.length === 0) {
-                        setMessage('確率を計算する対象カードの組み合わせを1つ以上設定してください。');
+                    const activeCombinationSets = combinationSets.filter(set => set.isActive);
+                    if (activeCombinationSets.length === 0) {
+                        setMessage('有効な組み合わせ条件が1つ以上設定されていません。');
                         setLoading(false);
                         return;
                     }
-                    for (const combo of selectedTargetCombinations) {
-                        if (combo.cardTypeId === null) {
-                            setMessage('組み合わせ対象のカードが選択されていません。');
+                    for (const comboSet of activeCombinationSets) {
+                        if (comboSet.conditions.length === 0) {
+                            setMessage(`組み合わせ「${comboSet.name}」に条件が設定されていません。`);
                             setLoading(false);
                             return;
                         }
-                        const cardInDeck = cardTypes.find(ct => ct.id === combo.cardTypeId);
-                        if (!cardInDeck) {
-                            setMessage(`設定されている組み合わせ対象カード「${combo.cardTypeId}」がデッキに存在しません。`);
-                            setLoading(false);
-                            return;
-                        }
-                        if (isNaN(combo.minCount) || combo.minCount < 1 || combo.minCount > (cardInDeck.count || 0)) {
-                            setMessage(`カード「${cardInDeck.name || '名称未設定'}」の最低枚数は1から採用枚数（${cardInDeck.count}）までの数字で指定してください。`);
-                            setLoading(false);
-                            return;
+                        for (const cond of comboSet.conditions) {
+                            if (cond.cardTypeId === null) {
+                                setMessage(`組み合わせ「${comboSet.name}」の条件にカードが選択されていません。`);
+                                setLoading(false);
+                                return;
+                            }
+                            const cardInDeck = cardTypes.find(ct => ct.id === cond.cardTypeId);
+                            if (!cardInDeck) {
+                                setMessage(`組み合わせ「${comboSet.name}」に設定されているカード「${cardTypes.find(c => c.id === cond.cardTypeId)?.name || cond.cardTypeId}」がデッキに存在しません。`);
+                                setLoading(false);
+                                return;
+                            }
+                            // targetCountの最小値と最大値を検証
+                            if (isNaN(cond.targetCount) || cond.targetCount < 0 || cond.targetCount > (cardInDeck.count || 0)) {
+                                setMessage(`カード「${cardInDeck.name || '名称未設定'}」の枚数は0から採用枚数（${cardInDeck.count}）までの数字で指定してください。`);
+                                setLoading(false);
+                                return;
+                            }
                         }
                     }
                 }
@@ -320,7 +446,11 @@
                     maxTargetCopiesInDeck = parseInt(selectedTargetCard?.count || 0);
                     simulationCounts = Array(maxTurns + 1).fill(0).map(() => Array(maxTargetCopiesInDeck + 1).fill(0));
                 } else { // CALC_MODE_COMBINATION
-                    simulationCounts = Array(maxTurns + 1).fill(0);
+                    // 複数の組み合わせセットに対応
+                    simulationCounts = {};
+                    combinationSets.filter(set => set.isActive).forEach(set => {
+                        simulationCounts[set.id] = Array(maxTurns + 1).fill(0);
+                    });
                 }
 
                 const isWitchClassSelected = selectedClass === 'Witch';
@@ -353,8 +483,16 @@
                     let hand = [];
                     let pp = 0;
                     let currentDeck = [...deck];
-                    let combinationAchievedTurn = -1; // 組み合わせモード用
+                    let combinationAchievedTurn = {}; // 組み合わせモード用 (各セットの達成ターンを保持)
+                    combinationSets.filter(set => set.isActive).forEach(set => {
+                        combinationAchievedTurn[set.id] = -1;
+                    });
+                    
                     let cardsDrawnCumulatively = {}; // 累計で引いたカードの枚数を追跡
+                    cardTypes.forEach(cardType => { // 全てのカードタイプを初期化
+                        cardsDrawnCumulatively[cardType.id] = 0;
+                    });
+
                     let totalTargetCardsDrawn = 0; // 単一カードモード用
 
                     let spellsPlayedPerTurnInSim = Array(maxTurns + 1).fill(0);
@@ -425,12 +563,12 @@
                     
                     // 0ターン目（初期手札+マリガン後）での組み合わせ/単一カードチェック
                     if (calculationMode === CALC_MODE_COMBINATION) {
-                        if (checkCombinationDrawnCumulatively(cardsDrawnCumulatively, selectedTargetCombinations)) {
-                            combinationAchievedTurn = 0;
-                        }
-                        if (combinationAchievedTurn !== -1) { // 組み合わせが揃った場合のみカウント
-                            simulationCounts[combinationAchievedTurn]++;
-                        }
+                        combinationSets.filter(set => set.isActive).forEach(set => {
+                            if (checkCombinationDrawnCumulatively(cardsDrawnCumulatively, set.conditions)) {
+                                combinationAchievedTurn[set.id] = 0;
+                                simulationCounts[set.id][0]++;
+                            }
+                        });
                     } else { // CALC_MODE_SINGLE
                         // 0ターン目の対象カード枚数を記録
                         simulationCounts[0][totalTargetCardsDrawn]++;
@@ -443,7 +581,9 @@
 
 
                     for (let turn = 1; turn <= maxTurns; turn++) {
-                        if (calculationMode === CALC_MODE_COMBINATION && combinationAchievedTurn !== -1) break; // 組み合わせがすでに揃っている場合は終了
+                        // 全ての組み合わせが達成済みかチェックし、全て達成済みならループを抜ける
+                        const allCombinationsAchieved = Object.values(combinationAchievedTurn).every(t => t !== -1);
+                        if (calculationMode === CALC_MODE_COMBINATION && allCombinationsAchieved) break;
 
                         let currentTurnSpellsPlayed = 0;
 
@@ -524,15 +664,12 @@
 
                         // 各ターン終了時での組み合わせ/単一カードチェック
                         if (calculationMode === CALC_MODE_COMBINATION) {
-                            if (checkCombinationDrawnCumulatively(cardsDrawnCumulatively, selectedTargetCombinations)) {
-                                combinationAchievedTurn = turn;
-                            }
-                            // ここでsimulationCounts[turn]をインクリメントするのは、
-                            // そのターンで初めて条件を満たした場合のみが適切です。
-                            // combinationAchievedTurnが更新された場合のみカウントするように修正
-                            if (combinationAchievedTurn === turn) { // このターンで初めて揃った場合
-                                simulationCounts[turn]++;
-                            }
+                            combinationSets.filter(set => set.isActive).forEach(set => {
+                                if (combinationAchievedTurn[set.id] === -1 && checkCombinationDrawnCumulatively(cardsDrawnCumulatively, set.conditions)) {
+                                    combinationAchievedTurn[set.id] = turn;
+                                    simulationCounts[set.id][turn]++;
+                                }
+                            });
                         } else { // CALC_MODE_SINGLE
                             // 各ターン終了時の対象カード枚数を記録
                             simulationCounts[turn][totalTargetCardsDrawn]++;
@@ -567,6 +704,7 @@
                         requestAnimationFrame(runBatch);
                     } else {
                         const finalResults = [];
+                        const activeCombinationSets = combinationSets.filter(set => set.isActive);
 
                         if (calculationMode === CALC_MODE_SINGLE) {
                             const displayMaxCopies = Math.min(maxTargetCopiesInDeck, 3);
@@ -586,13 +724,20 @@
                                 finalResults.push(currentTurnData);
                             }
                         } else { // CALC_MODE_COMBINATION
-                            let cumulativeCount = 0;
+                            // 各組み合わせセットの累積カウントを保持
+                            const cumulativeCounts = {};
+                            activeCombinationSets.forEach(set => {
+                                cumulativeCounts[set.id] = 0;
+                            });
+
                             for (let turn = 0; turn <= maxTurns; turn++) {
-                                cumulativeCount += simulationCounts[turn];
                                 const turnData = {
                                     turn: turn === 0 ? '初期手札+マリガン' : `${turn}ターン目`,
-                                    probability: (cumulativeCount / numSimulations * 100).toFixed(2),
                                 };
+                                activeCombinationSets.forEach(set => {
+                                    cumulativeCounts[set.id] += simulationCounts[set.id][turn];
+                                    turnData[`probability_${set.id}`] = (cumulativeCounts[set.id] / numSimulations * 100).toFixed(2);
+                                });
                                 // 変更点: 組み合わせモードでもスペルブーストデータを追加
                                 if (isWitchClassSelected) {
                                     turnData.averageSpellsPerTurn = (totalSpellsPlayedPerTurnRawSum[turn] / numSimulations).toFixed(2);
@@ -608,7 +753,7 @@
                 };
 
                 requestAnimationFrame(runBatch);
-            }, [cardTypes, calculationMode, selectedTargetCardTypeId, selectedTargetCombinations, isFirstPlayer, numSimulations, deckSize, maxTurns, extraPpTurn1, extraPpTurn2, selectedClass, handLimit]);
+            }, [cardTypes, calculationMode, selectedTargetCardTypeId, combinationSets, isFirstPlayer, numSimulations, deckSize, maxTurns, extraPpTurn1, extraPpTurn2, selectedClass, handLimit]);
 
             // Helper function to get color class based on probability
             const getProbabilityColorClass = (probability) => {
@@ -670,7 +815,7 @@
                     },
                     calculationMode: calculationMode, // 計算モードも保存
                     selectedTargetCardTypeId: selectedTargetCardTypeId, // 単一カードモード用
-                    selectedTargetCombinationsData: selectedTargetCombinations // 組み合わせモード用
+                    combinationSetsData: combinationSets // 組み合わせモード用
                 };
 
                 setSavedSimulations(prevSavedSimulations => {
@@ -700,7 +845,19 @@
                     setSelectedClass(savedItem.gameSettingsData.selectedClass);
                     setCalculationMode(savedItem.calculationMode || CALC_MODE_COMBINATION); // モードもロード
                     setSelectedTargetCardTypeId(savedItem.selectedTargetCardTypeId || (savedItem.cardTypesData[0]?.id || null)); // 単一カード用
-                    setSelectedTargetCombinations(savedItem.selectedTargetCombinationsData || [{ id: Date.now(), cardTypeId: savedItem.cardTypesData[0]?.id || null, minCount: 1 }]); // 組み合わせ用
+                    
+                    // 組み合わせデータが存在しない場合（古い保存データなど）のフォールバックと、matchType, matchLocationのデフォルト設定
+                    setCombinationSets(
+                        savedItem.combinationSetsData?.map(set => ({
+                            ...set,
+                            isActive: set.isActive !== undefined ? set.isActive : true, // isActiveがなければデフォルトでtrue
+                            conditions: set.conditions?.map(cond => ({
+                                ...cond,
+                                matchType: cond.matchType || MATCH_TYPE_AT_LEAST,
+                                matchLocation: cond.matchLocation || MATCH_LOCATION_HAND
+                            })) || [{ id: Date.now(), cardTypeId: savedItem.cardTypesData[0]?.id || null, targetCount: 1, matchType: MATCH_TYPE_AT_LEAST, matchLocation: MATCH_LOCATION_HAND }]
+                        })) || [{ id: Date.now(), name: '組み合わせ1', isActive: true, conditions: [{ id: Date.now() + 1, cardTypeId: savedItem.cardTypesData[0]?.id || null, targetCount: 1, matchType: MATCH_TYPE_AT_LEAST, matchLocation: MATCH_LOCATION_HAND }] }]
+                    );
 
                     setMessage(`「${savedItem.description}」の設定を適用しました。`);
                     setShowSavedResultsPanel(false);
@@ -731,7 +888,7 @@
             return (
                 <div className="p-4 sm:p-6 md:p-8 bg-gray-900 text-white min-h-screen font-inter">
                     <h1 className="text-3xl sm:text-4xl font-bold text-center mb-6 sm:mb-8 text-purple-400">
-                        何ターン目に引ける君
+                        確率、どんなもん？
                     </h1>
 
                     <div className="max-w-full mx-auto bg-gray-800 rounded-xl shadow-lg p-6 sm:p-8 space-y-6">
@@ -1069,54 +1226,112 @@
                                     確率を計算する対象カードの組み合わせ
                                 </div>
                                 <div className="p-4 border-t border-gray-600 space-y-4">
-                                    {selectedTargetCombinations.length === 0 && (
-                                        <p className="text-gray-400 text-center">対象とするカードの組み合わせを追加してください。</p>
+                                    {combinationSets.length === 0 && (
+                                        <p className="text-gray-400 text-center">対象とするカードの組み合わせセットを追加してください。</p>
                                     )}
-                                    {selectedTargetCombinations.map((combo, index) => (
-                                        <div key={combo.id} className="flex flex-col sm:flex-row gap-2 p-3 bg-gray-800 rounded-md items-center">
-                                            <div className="flex-1 w-full">
-                                                <label htmlFor={`comboCardSelect-${combo.id}`} className="sr-only">対象カード</label>
-                                                <select
-                                                    id={`comboCardSelect-${combo.id}`}
-                                                    value={combo.cardTypeId || ''}
-                                                    onChange={(e) => updateTargetCombination(combo.id, 'cardTypeId', parseInt(e.target.value))}
-                                                    className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 w-full text-sm"
-                                                >
-                                                    {cardTypes.length === 0 && <option value="">カードタイプを設定してください</option>}
-                                                    {cardTypes.map(cardType => (
-                                                        <option key={cardType.id} value={cardType.id} className={getCardTypeTextColorClass(cardType.type)}>
-                                                            {cardType.name || `カードタイプ ${cardType.id}`}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            <div className="flex-shrink-0">
-                                                <label htmlFor={`comboMinCount-${combo.id}`} className="sr-only">最低枚数</label>
+                                    {combinationSets.map((comboSet) => (
+                                        <div key={comboSet.id} className="bg-gray-800 p-4 rounded-md shadow-sm mb-4">
+                                            <div className="flex items-center justify-between mb-3">
                                                 <input
-                                                    type="number"
-                                                    id={`comboMinCount-${combo.id}`}
-                                                    value={combo.minCount}
-                                                    onChange={(e) => updateTargetCombination(combo.id, 'minCount', parseInt(e.target.value))}
-                                                    className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm w-20 text-center"
-                                                    min="1"
-                                                    max="3"
+                                                    type="text"
+                                                    value={comboSet.name}
+                                                    onChange={(e) => updateCombinationSetName(comboSet.id, e.target.value)}
+                                                    className="flex-1 p-2 rounded-md bg-gray-700 border border-gray-600 focus:ring-purple-500 focus:border-purple-500 text-sm mr-2"
                                                 />
-                                                <span className="ml-2 text-gray-300">枚以上</span>
+                                                <label className="inline-flex items-center cursor-pointer mr-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="sr-only peer"
+                                                        checked={comboSet.isActive}
+                                                        onChange={() => toggleCombinationSetActivity(comboSet.id)}
+                                                    />
+                                                    <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
+                                                    <span className="ms-3 text-sm font-medium text-gray-300">{comboSet.isActive ? '有効' : '無効'}</span>
+                                                </label>
+                                                <button
+                                                    onClick={() => removeCombinationSet(comboSet.id)}
+                                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2 rounded-md transition duration-200 text-sm"
+                                                >
+                                                    セット削除
+                                                </button>
                                             </div>
+                                            {comboSet.conditions.length === 0 && (
+                                                <p className="text-gray-400 text-center text-sm mb-2">この組み合わせセットに条件を追加してください。</p>
+                                            )}
+                                            {comboSet.conditions.map((cond) => {
+                                                const selectedCardType = cardTypes.find(ct => ct.id === cond.cardTypeId);
+                                                const maxTargetCount = selectedCardType ? selectedCardType.count : 3; // デフォルトは3
+                                                return (
+                                                    <div key={cond.id} className="flex flex-col sm:flex-row gap-2 p-3 bg-gray-700 rounded-md items-center mb-2">
+                                                        <div className="flex-1 w-full">
+                                                            <label htmlFor={`condCardSelect-${cond.id}`} className="sr-only">対象カード</label>
+                                                            <select
+                                                                id={`condCardSelect-${cond.id}`}
+                                                                value={cond.cardTypeId || ''}
+                                                                onChange={(e) => updateCombinationCondition(comboSet.id, cond.id, 'cardTypeId', parseInt(e.target.value))}
+                                                                className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 w-full text-sm"
+                                                            >
+                                                                {cardTypes.length === 0 && <option value="">カードタイプを設定してください</option>}
+                                                                {cardTypes.map(cardType => (
+                                                                    <option key={cardType.id} value={cardType.id} className={getCardTypeTextColorClass(cardType.type)}>
+                                                                        {cardType.name || `カードタイプ ${cardType.id}`}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <div className="flex-shrink-0 flex items-center gap-2">
+                                                            <label htmlFor={`condTargetCount-${cond.id}`} className="sr-only">枚数</label>
+                                                            <input
+                                                                type="number"
+                                                                id={`condTargetCount-${cond.id}`}
+                                                                value={cond.targetCount}
+                                                                onChange={(e) => updateCombinationCondition(comboSet.id, cond.id, 'targetCount', parseInt(e.target.value))}
+                                                                className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm w-20 text-center"
+                                                                min="0"
+                                                                max={maxTargetCount}
+                                                            />
+                                                            <select
+                                                                id={`condMatchType-${cond.id}`}
+                                                                value={cond.matchType}
+                                                                onChange={(e) => updateCombinationCondition(comboSet.id, cond.id, 'matchType', e.target.value)}
+                                                                className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                            >
+                                                                <option value={MATCH_TYPE_AT_LEAST}>枚以上</option>
+                                                                <option value={MATCH_TYPE_EXACTLY}>枚丁度</option>
+                                                            </select>
+                                                            <select
+                                                                id={`condMatchLocation-${cond.id}`}
+                                                                value={cond.matchLocation}
+                                                                onChange={(e) => updateCombinationCondition(comboSet.id, cond.id, 'matchLocation', e.target.value)}
+                                                                className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                            >
+                                                                <option value={MATCH_LOCATION_HAND}>手札に来る</option>
+                                                                <option value={MATCH_LOCATION_DECK}>デッキに残す</option>
+                                                            </select>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => removeCombinationCondition(comboSet.id, cond.id)}
+                                                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-md transition duration-200 text-sm flex-shrink-0"
+                                                        >
+                                                            削除
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
                                             <button
-                                                onClick={() => removeTargetCombination(combo.id)}
-                                                className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-md transition duration-200 text-sm flex-shrink-0"
+                                                onClick={() => addCombinationCondition(comboSet.id)}
+                                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200 mt-2"
+                                                disabled={cardTypes.length === 0}
                                             >
-                                                削除
+                                                条件を追加
                                             </button>
                                         </div>
                                     ))}
                                     <button
-                                        onClick={addTargetCombination}
-                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200 mt-2"
-                                        disabled={cardTypes.length === 0}
+                                        onClick={addCombinationSet}
+                                        className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md transition duration-200 mt-4"
                                     >
-                                        組み合わせ対象カードを追加
+                                        新しい組み合わせセットを追加
                                     </button>
                                     {cardTypes.length === 0 && (
                                         <p className="text-red-400 text-center text-sm mt-2">※先に「デッキカード設定」でカードタイプを設定してください。</p>
@@ -1135,12 +1350,6 @@
                             {loading ? '計算中...' : '確率を計算'}
                         </button>
 
-                        {message && (
-                            <div className="bg-red-800 text-red-200 p-3 rounded-md text-center">
-                                {message}
-                            </div>
-                        )}
-
                         {/* Results display */}
                         {results.length > 0 && (
                             <div className="mt-8">
@@ -1148,7 +1357,7 @@
                                 <p className="text-gray-200 text-center mb-4">
                                     {calculationMode === CALC_MODE_SINGLE
                                         ? `選択したカードを各ターン開始時までに引く累積確率です。`
-                                        : `指定したカードの組み合わせが各ターン開始時までに累計で手札に来る累積確率です。`
+                                        : `指定したカードの組み合わせが各ターン開始時までに累計で条件を満たす累積確率です。`
                                     }
                                 </p>
                                 <div className="overflow-x-auto rounded-lg shadow-md">
@@ -1171,9 +1380,11 @@
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <th className="py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider">
-                                                            今回の結果 (%)
-                                                        </th>
+                                                        {combinationSets.filter(set => set.isActive).map(set => (
+                                                            <th key={`current-prob-${set.id}`} className="py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider">
+                                                                {set.name} (%)
+                                                            </th>
+                                                        ))}
                                                         {loadedSavedComparisonResults.length > 0 && (
                                                             <th className={`py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider`}>
                                                                 比較対象 (%)
@@ -1214,9 +1425,11 @@
                                                             </>
                                                         ) : (
                                                             <>
-                                                                <td className={`py-3 px-4 whitespace-nowrap text-sm ${getProbabilityColorClass(res.probability)}`}>
-                                                                    {res.probability}
-                                                                </td>
+                                                                {combinationSets.filter(set => set.isActive).map(set => (
+                                                                    <td key={`prob-cell-${set.id}-${index}`} className={`py-3 px-4 whitespace-nowrap text-sm ${getProbabilityColorClass(res[`probability_${set.id}`])}`}>
+                                                                        {res[`probability_${set.id}`]}
+                                                                    </td>
+                                                                ))}
                                                                 {loadedSavedComparisonResults.length > 0 && (
                                                                     <td className={`py-3 px-4 whitespace-nowrap text-sm ${loadedCompRes && loadedCompRes.probability !== undefined ? getProbabilityColorClass(loadedCompRes.probability) : ''}`}>
                                                                         {loadedCompRes && loadedCompRes.probability !== undefined ? loadedCompRes.probability : '-'}
@@ -1240,6 +1453,12 @@
                                         </tbody>
                                     </table>
                                 </div>
+                                {/* Message display for save/load operations */}
+                                {message && (
+                                    <div className="bg-green-800 text-green-200 p-3 rounded-md text-center mt-4">
+                                        {message}
+                                    </div>
+                                )}
                                 {/* Save current results */}
                                 <div className="flex flex-col sm:flex-row gap-2 mt-4">
                                     <input
@@ -1373,7 +1592,7 @@
                                                 {calculationMode === CALC_MODE_SINGLE ? (
                                                     <li>この時点での対象カードの枚数を記録（0ターン目）</li>
                                                 ) : (
-                                                    <li>この時点での対象カードの**組み合わせが累計で手札に来ているか**記録（0ターン目）</li>
+                                                    <li>この時点での有効な各組み合わせセットについて、**累計で条件を満たしているか**記録（0ターン目）</li>
                                                 )}
                                             </ul>
                                         </li>
@@ -1407,7 +1626,7 @@
                                                     {calculationMode === CALC_MODE_SINGLE ? (
                                                         <li>そのターンまでに引いた対象カードの合計枚数を記録</li>
                                                     ) : (
-                                                        <li>そのターンまでに指定したカードの**組み合わせが累計で手札に来ているか**記録</li>
+                                                        <li>そのターンまでに有効な各組み合わせセットについて、**累計で条件を満たしているか**記録</li>
                                                     )}
                                                 </li>
                                             </ul>
@@ -1420,7 +1639,7 @@
                                                 {calculationMode === CALC_MODE_SINGLE ? (
                                                     <li>各ターン終了時までに、対象カードを「1枚以上」「2枚以上」「3枚以上」引けた回数を集計</li>
                                                 ) : (
-                                                    <li>各ターン終了時までに、指定したカードの組み合わせが揃った回数を集計</li>
+                                                    <li>各ターン終了時までに、有効な各組み合わせセットが揃った回数を集計</li>
                                                 )}
                                                 <li>集計した回数を総シミュレーション回数で割り、累積確率（パーセンテージ）として表示</li>
                                                 {selectedClass === 'Witch' && (
@@ -1428,6 +1647,12 @@
                                                         <li>ウィッチクラス選択時は、各ターン終了時までにプレイされたスペルの合計数（追加スペルブースト量を含む）の平均値を「スペルブースト (ターン平均)」として、またそれまでの累計スペルブースト数の平均値を「スペルブースト (累計平均)」として表示します。</li>
                                                     </>
                                                 )}
+                                                <li>
+                                                    「X枚丁度」の条件を設定した場合、そのカードがX枚ちょうど手札に来た場合にのみ条件を満たしたと判定されます。特に「0枚丁度」は、そのカードが手札に一度も来なかった場合の確率を計算します。
+                                                </li>
+                                                <li>
+                                                    「X枚以上デッキに残す」または「X枚丁度デッキに残す」の条件を設定した場合、そのカードがデッキに指定枚数以上または指定枚数丁度残っている場合にのみ条件を満たしたと判定されます。
+                                                </li>
                                             </ul>
                                         </li>
                                     </ol>
