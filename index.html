@@ -367,7 +367,8 @@
             };
 
             // 累計で手札に来たカードの枚数に基づいて組み合わせが揃ったかチェックするヘルパー関数
-            const checkCombinationDrawnCumulatively = (drawnCounts, conditions) => {
+            // この関数は、その時点でのdrawnCountsとinitialCardCountに基づいて条件が満たされているかを判定する
+            const checkCombinationCondition = (drawnCounts, conditions) => {
                 if (conditions.length === 0) return false;
 
                 for (const cond of conditions) {
@@ -540,6 +541,7 @@
                     // 複数の組み合わせセットに対応
                     simulationCounts = {};
                     combinationSets.filter(set => set.isActive).forEach(set => {
+                        // 各ターンでの条件達成数を記録
                         simulationCounts[set.id] = Array(maxTurns + 1).fill(0);
                     });
                 }
@@ -582,10 +584,7 @@
                     let hand = [];
                     let pp = 0;
                     let currentDeck = [...deck];
-                    let combinationAchievedTurn = {}; // 組み合わせモード用 (各セットの達成ターンを保持)
-                    combinationSets.filter(set => set.isActive).forEach(set => {
-                        combinationAchievedTurn[set.id] = -1;
-                    });
+                    // combinationAchievedTurn は各ターンでの条件達成を記録するために不要になったため削除
                     
                     let cardsDrawnCumulatively = {}; // 累計で引いたカードの枚数を追跡
                     cardTypes.forEach(cardType => { // 全てのカードタイプを初期化
@@ -673,8 +672,8 @@
                     // 0ターン目（初期手札+マリガン後）での組み合わせ/単一カードチェック
                     if (calculationMode === CALC_MODE_COMBINATION) {
                         combinationSets.filter(set => set.isActive).forEach(set => {
-                            if (combinationAchievedTurn[set.id] === -1 && checkCombinationDrawnCumulatively(cardsDrawnCumulatively, set.conditions)) {
-                                combinationAchievedTurn[set.id] = 0;
+                            // 各ターンでの条件達成数を記録するように変更
+                            if (checkCombinationCondition(cardsDrawnCumulatively, set.conditions)) {
                                 simulationCounts[set.id][0]++;
                             }
                         });
@@ -693,9 +692,9 @@
 
 
                     for (let turn = 1; turn <= maxTurns; turn++) {
-                        // 全ての組み合わせが達成済みかチェックし、全て達成済みならループを抜ける
-                        const allCombinationsAchieved = Object.values(combinationAchievedTurn).every(t => t !== -1);
-                        if (calculationMode === CALC_MODE_COMBINATION && allCombinationsAchieved) break;
+                        // 全ての組み合わせが達成済みかチェックし、全て達成済みならループを抜けるロジックを削除
+                        // const allCombinationsAchieved = Object.values(combinationAchievedTurn).every(t => t !== -1);
+                        // if (calculationMode === CALC_MODE_COMBINATION && allCombinationsAchieved) break;
 
                         let currentTurnSpellsPlayed = 0;
                         let currentTurnCardsPlayed = 0; // エルフ用: このターンにプレイしたカードの枚数
@@ -815,8 +814,8 @@
                         // 各ターン終了時での組み合わせ/単一カードチェック
                         if (calculationMode === CALC_MODE_COMBINATION) {
                             combinationSets.filter(set => set.isActive).forEach(set => {
-                                if (combinationAchievedTurn[set.id] === -1 && checkCombinationDrawnCumulatively(cardsDrawnCumulatively, set.conditions)) {
-                                    combinationAchievedTurn[set.id] = turn;
+                                // 各ターンで条件が満たされているかを直接カウント
+                                if (checkCombinationCondition(cardsDrawnCumulatively, set.conditions)) {
                                     simulationCounts[set.id][turn]++;
                                 }
                             });
@@ -877,20 +876,10 @@
                                     currentTurnData[`probabilityAtLeast${n}`] = (countForAtLeastN / numSimulations * 100).toFixed(2);
                                 }
                             } else { // CALC_MODE_COMBINATION
-                                // 各組み合わせセットの累積カウントを保持
-                                const cumulativeCounts = {};
-                                activeCombinationSets.forEach(set => {
-                                    cumulativeCounts[set.id] = 0; // ターンごとの累積はここで計算し直す
-                                });
-                                // 0ターンから現在のターンまでのシミュレーションカウントを合計
-                                for (let t = 0; t <= turn; t++) {
-                                    activeCombinationSets.forEach(set => {
-                                        cumulativeCounts[set.id] += simulationCounts[set.id][t];
-                                    });
-                                }
+                                // 組み合わせモードでは、各ターンの条件達成数を直接表示
                                 let totalCombinationProbabilities = 0;
                                 activeCombinationSets.forEach(set => {
-                                    const prob = (cumulativeCounts[set.id] / numSimulations * 100);
+                                    const prob = (simulationCounts[set.id][turn] / numSimulations * 100);
                                     currentTurnData[`probability_${set.id}`] = prob.toFixed(2);
                                     totalCombinationProbabilities += prob;
                                 });
@@ -1755,7 +1744,7 @@
                                 <p className="text-gray-200 text-center mb-4">
                                     {calculationMode === CALC_MODE_SINGLE
                                         ? `選択したカードを各ターン開始時までに引く累積確率です。`
-                                        : `指定したカードの組み合わせが各ターン開始時までに累計で条件を満たす累積確率です。`
+                                        : `指定したカードの組み合わせが各ターン終了時に条件を満たす確率です。`
                                     }
                                 </p>
                                 <div className="overflow-x-auto rounded-lg shadow-md">
@@ -2206,7 +2195,7 @@
                                                 {calculationMode === CALC_MODE_SINGLE ? (
                                                     <li>この時点での対象カードの枚数を記録（0ターン目）</li>
                                                 ) : (
-                                                    <li>この時点での有効な各組み合わせセットについて、**累計で条件を満たしているか**記録（0ターン目）</li>
+                                                    <li>この時点での有効な各組み合わせセットについて、条件を満たしているか記録（0ターン目）</li>
                                                 )}
                                             </ul>
                                         </li>
@@ -2255,7 +2244,7 @@
                                                     {calculationMode === CALC_MODE_SINGLE ? (
                                                         <li>そのターンまでに引いた対象カードの合計枚数を記録</li>
                                                     ) : (
-                                                        <li>そのターンまでに有効な各組み合わせセットについて、**累計で条件を満たしているか**記録</li>
+                                                        <li>そのターン終了時に有効な各組み合わせセットについて、条件を満たしているか記録</li>
                                                     )}
                                                 </li>
                                             </ul>
@@ -2269,11 +2258,11 @@
                                                     <li>各ターン終了時までに、対象カードを「1枚以上」「2枚以上」「3枚以上」引けた回数を集計</li>
                                                 ) : (
                                                     <>
-                                                        <li>各ターン終了時までに、有効な各組み合わせセットが揃った回数を集計</li>
+                                                        <li>各ターン終了時において、有効な各組み合わせセットが条件を満たした回数を集計</li>
                                                         <li>すべての有効な組み合わせセットの確率を合計し、その数で割って平均確率を算出</li>
                                                     </>
                                                 )}
-                                                <li>集計した回数を総シミュレーション回数で割り、累積確率（パーセンテージ）として表示</li>
+                                                <li>集計した回数を総シミュレーション回数で割り、確率（パーセンテージ）として表示</li>
                                                 {selectedClass === 'Witch' && (
                                                     <>
                                                         <li>ウィッチクラス選択時は、各ターン終了時までにプレイされたスペルの合計数（追加スペルブースト量を含む）の平均値を「スペルブースト (ターン平均)」として、またそれまでの累計スペルブースト数の平均値を「スペルブースト (累計平均)」として表示します。</li>
@@ -2286,7 +2275,7 @@
                                                     「X枚丁度」の条件を設定した場合、そのカードがX枚ちょうど手札に来た場合にのみ条件を満たしたと判定されます。特に「0枚丁度」は、そのカードが手札に一度も来なかった場合の確率を計算します。
                                                 </li>
                                                 <li>
-                                                    「X枚以上デッキに残す」または「X枚丁度デッキに残す」の条件を設定した場合、そのカードがデッキに指定枚数以上または指定枚数丁度残っている場合にのみ条件を満したと判定されます。
+                                                    「X枚以上デッキに残す」または「X枚丁度デッキに残す」の条件を設定した場合、そのカードがデッキに指定枚数以上または指定枚数丁度残っている場合にのみ条件を満たしたと判定されます。これらの確率は、そのターン終了時点での状態を示します。
                                                 </li>
                                             </ul>
                                         </li>
@@ -2347,7 +2336,7 @@
                                             <strong>複数カードの組み合わせ確率モード:</strong>
                                             <ul className="list-circle list-inside ml-4">
                                                 <li>
-                                                    <strong>「[組み合わせ名] (%)」:</strong> 設定した組み合わせ条件が、そのターンまでに累計で満たされている確率を示します。
+                                                    <strong>「[組み合わせ名] (%)」:</strong> 設定した組み合わせ条件が、そのターン終了時点において満たされている確率を示します。
                                                 </li>
                                                 <li>
                                                     <strong>「平均確率 (%)」::</strong> すべての有効な組み合わせセットの確率を合計し、その数で割った平均値です。
@@ -2356,7 +2345,7 @@
                                                     <strong>「X枚丁度」:</strong> そのカードがX枚ちょうど手札に来た場合にのみ条件を満たしたと判定されます。特に「0枚丁度」は、そのカードが手札に一度も来なかった場合の確率を計算します。
                                                 </li>
                                                 <li>
-                                                    <strong>「X枚以上デッキに残す」/「X枚丁度デッキに残す」:</strong> そのカードがデッキに指定枚数以上または指定枚数丁度残っている場合にのみ条件を満たしたと判定されます。
+                                                    <strong>「X枚以上デッキに残す」/「X枚丁度デッキに残す」:</strong> そのカードがデッキに指定枚数以上または指定枚数丁度残っている場合にのみ条件を満たしたと判定されます。これらの確率は、そのターン終了時点での状態を示します。
                                                 </li>
                                             </ul>
                                         </li>
