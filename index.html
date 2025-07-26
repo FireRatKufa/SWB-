@@ -40,7 +40,8 @@
             transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
         }
         .accordion-content.open {
-            max-height: 3000px; /* Sufficiently large value to prevent cutoff */
+            /* Increased max-height to ensure all content is visible */
+            max-height: 9000px; /* Sufficiently large value to prevent cutoff for many cards */
             opacity: 1;
         }
     </style>
@@ -1873,7 +1874,7 @@
                                     ></path>
                                 </svg>
                             </button>
-                            <div className={`p-4 border-t border-gray-600 space-y-4 accordion-content ${showDeckManagement ? 'open' : ''}`}>
+                            <div className={`p-4 border-t border-gray-600 accordion-content ${showDeckManagement ? 'open' : ''}`}>
                                 <div className="flex flex-col sm:flex-row gap-2">
                                     <input
                                         type="text"
