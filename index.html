@@ -96,6 +96,21 @@
                     defaultGeneratesToken: false,
                     defaultTokenCost: 0,
                     defaultTokenCount: 0,
+                    generatesTokenAtEndOfTurn: false, // Explicitly false for Holy Tree Staff
+                },
+                TITANIA: { // New card: 翅の女王・ティターニア
+                    name: '翅の女王・ティターニア',
+                    defaultCount: 3, // Default count
+                    defaultCost: 4,
+                    defaultDrawCount: 0,
+                    defaultMulliganKeepCount: 0,
+                    defaultPlayPriorityTurns: [],
+                    defaultType: 'フォロワー',
+                    defaultSpellboostIncreaseAmount: 0,
+                    defaultGeneratesToken: true, // It generates a token
+                    defaultTokenCost: 1, // 1-cost token
+                    defaultTokenCount: 1, // 1 token
+                    generatesTokenAtEndOfTurn: true, // This token generation is at end of turn
                 },
             };
 
@@ -115,9 +130,9 @@
 
             // Default card types for initial load
             const defaultCardTypes = [
-                { id: 1, name: 'キーカードA', count: 3, cost: 3, drawCount: 0, mulliganKeepCount: 1, playPriorityTurns: [5], type: 'フォロワー', spellboostIncreaseAmount: 0, generatesToken: false, tokenCost: 0, tokenCount: 0 },
-                { id: 2, name: 'ドローカードA', count: 3, cost: 1, drawCount: 1, mulliganKeepCount: 0, playPriorityTurns: [], type: 'スペル', spellboostIncreaseAmount: 0, generatesToken: false, tokenCost: 0, tokenCount: 0 },
-                { id: 3, name: 'その他カード', count: 34, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'アミュレット', spellboostIncreaseAmount: 0, generatesToken: false, tokenCost: 0, tokenCount: 0 },
+                { id: 1, name: 'キーカードA', count: 3, cost: 3, drawCount: 0, mulliganKeepCount: 1, playPriorityTurns: [5], type: 'フォロワー', spellboostIncreaseAmount: 0, generatesToken: false, tokenCost: 0, tokenCount: 0, generatesTokenAtEndOfTurn: false },
+                { id: 2, name: 'ドローカードA', count: 3, cost: 1, drawCount: 1, mulliganKeepCount: 0, playPriorityTurns: [], type: 'スペル', spellboostIncreaseAmount: 0, generatesToken: false, tokenCost: 0, tokenCount: 0, generatesTokenAtEndOfTurn: false },
+                { id: 3, name: 'その他カード', count: 34, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'アミュレット', spellboostIncreaseAmount: 0, generatesToken: false, tokenCost: 0, tokenCount: 0, generatesTokenAtEndOfTurn: false },
             ];
 
             // Simulation settings state
@@ -229,7 +244,7 @@
 
 
             const addCardType = () => {
-                setCardTypes([...cardTypes, { id: Date.now(), name: '', count: 3, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'フォロワー', spellboostIncreaseAmount: 0, generatesToken: false, tokenCost: 0, tokenCount: 0 }]);
+                setCardTypes([...cardTypes, { id: Date.now(), name: '', count: 3, cost: 1, drawCount: 0, mulliganKeepCount: 0, playPriorityTurns: [], type: 'フォロワー', spellboostIncreaseAmount: 0, generatesToken: false, tokenCost: 0, tokenCount: 0, generatesTokenAtEndOfTurn: false }]);
             };
 
             const updateCardType = (id, field, value) => {
@@ -553,7 +568,8 @@
                                 generatesToken: cardType.generatesToken || false,
                                 tokenCost: parseInt(cardType.tokenCost) || 0,
                                 tokenCount: parseInt(cardType.tokenCount) || 0,
-                                isToken: false // Flag to distinguish from generated tokens
+                                isToken: false, // Flag to distinguish from generated tokens
+                                generatesTokenAtEndOfTurn: cardType.generatesTokenAtEndOfTurn || false, // New property
                             });
                         }
                     });
@@ -583,6 +599,7 @@
                     let cardsPlayedPerTurnInSim = Array(maxTurns + 1).fill(0); // エルフ用: ターンごとのプレイ枚数
 
                     let holyTreeStaffPlayedThisSim = false; // 聖樹の杖がこのシミュレーションでプレイされたか
+                    let titaniaPlayedThisTurn = false; // 翅の女王・ティターニアがこのターンにプレイされたか
 
                     let extraPpUsed1 = false;
                     let extraPpUsed2 = false;
@@ -682,6 +699,7 @@
 
                         let currentTurnSpellsPlayed = 0;
                         let currentTurnCardsPlayed = 0; // エルフ用: このターンにプレイしたカードの枚数
+                        titaniaPlayedThisTurn = false; // 各ターンの開始時にリセット
 
                         let currentMaxPp = Math.min(turn, 10);
                         pp = currentMaxPp;
@@ -752,11 +770,14 @@
                                 if (cardToPlay.name === SPECIAL_CARD_NAMES.HOLY_TREE_STAFF.name) { // 聖樹の杖がプレイされたことを記録
                                     holyTreeStaffPlayedThisSim = true;
                                 }
-                                // トークン生成効果の処理
-                                if (cardToPlay.generatesToken) {
+                                // Titania's effect is end-of-turn, so just set a flag here
+                                if (cardToPlay.name === SPECIAL_CARD_NAMES.TITANIA.name) {
+                                    titaniaPlayedThisTurn = true;
+                                }
+                                // Immediate token generation for other cards that generate tokens on play
+                                if (cardToPlay.generatesToken && !cardToPlay.generatesTokenAtEndOfTurn) { // Only generate immediately if not an end-of-turn token
                                     for (let i = 0; i < cardToPlay.tokenCount; i++) {
                                         if (hand.length < handLimit) {
-                                            // Add a new token card object to hand
                                             hand.push({ cost: cardToPlay.tokenCost, isToken: true });
                                         } else {
                                             break; // Hand is full
@@ -779,6 +800,16 @@
                         // 聖樹の杖の効果処理 (ターン終了時)
                         if (isElfClassSelected && holyTreeStaffPlayedThisSim && currentTurnCardsPlayed >= 3) {
                             drawCardAndUpdateCumulative(); // 追加で1枚ドロー
+                        }
+                        // 翅の女王・ティターニアの効果処理 (ターン終了時)
+                        if (isElfClassSelected && titaniaPlayedThisTurn) {
+                            for (let i = 0; i < SPECIAL_CARD_NAMES.TITANIA.defaultTokenCount; i++) {
+                                if (hand.length < handLimit) {
+                                    hand.push({ cost: SPECIAL_CARD_NAMES.TITANIA.defaultTokenCost, isToken: true }); // Add 1-cost token
+                                } else {
+                                    break;
+                                }
+                            }
                         }
 
                         // 各ターン終了時での組み合わせ/単一カードチェック
@@ -1123,6 +1154,7 @@
                             generatesToken: specialCardData.defaultGeneratesToken,
                             tokenCost: specialCardData.defaultTokenCost,
                             tokenCount: specialCardData.defaultTokenCount,
+                            generatesTokenAtEndOfTurn: specialCardData.generatesTokenAtEndOfTurn || false, // Ensure this is set
                         };
                         updatedCardTypes = [...prevCardTypes, newCard];
                         targetCardId = newCard.id;
@@ -1147,6 +1179,65 @@
 
                     return updatedCardTypes;
                 });
+            };
+
+            // --- Export/Import Deck Data Functions ---
+            const handleExportDecks = () => {
+                if (savedDecks.length === 0) {
+                    setMessage("エクスポートするデッキデータがありません。");
+                    return;
+                }
+                try {
+                    const dataStr = JSON.stringify(savedDecks, null, 2);
+                    const blob = new Blob([dataStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `shadowverse_decks_export_${new Date().toISOString().slice(0, 10)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    setMessage("デッキデータをエクスポートしました！");
+                } catch (error) {
+                    console.error("Error exporting decks:", error);
+                    setMessage("デッキのエクスポート中にエラーが発生しました。");
+                }
+            };
+
+            const handleImportDecks = (event) => {
+                const file = event.target.files[0];
+                if (!file) {
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const importedData = JSON.parse(e.target.result);
+                        // Basic validation: check if it's an array and contains objects with 'id' and 'name'
+                        if (Array.isArray(importedData) && importedData.every(item => typeof item === 'object' && item !== null && 'id' in item && 'name' in item && 'cardTypes' in item)) {
+                            // Optionally, merge with existing or replace
+                            // For now, let's replace to keep it simple and avoid duplicates management complexity
+                            setSavedDecks(importedData);
+                            setMessage(`デッキデータを${importedData.length}件インポートしました！`);
+                        } else {
+                            setMessage("不正なファイル形式です。JSON形式のデッキデータファイルを選択してください。");
+                        }
+                    } catch (error) {
+                        console.error("Error importing decks:", error);
+                        setMessage("ファイルの読み込みまたは解析中にエラーが発生しました。");
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            const triggerImport = () => {
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = '.json';
+                fileInput.onchange = handleImportDecks;
+                fileInput.click();
             };
 
 
@@ -1332,7 +1423,7 @@
                                                 id={`cardTypeName-${cardType.id}`}
                                                 value={cardType.name}
                                                 onChange={(e) => updateCardType(cardType.id, 'name', e.target.value)}
-                                                className={`p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm ${cardType.name === SPECIAL_CARD_NAMES.HOLY_TREE_STAFF.name ? 'text-yellow-300' : ''}`}
+                                                className={`p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm ${cardType.name === SPECIAL_CARD_NAMES.HOLY_TREE_STAFF.name || cardType.name === SPECIAL_CARD_NAMES.TITANIA.name ? 'text-yellow-300' : ''}`}
                                             />
                                         </div>
                                         <div className="flex flex-col p-2 bg-gray-700 rounded-md">
@@ -1891,6 +1982,22 @@
                                         現在のデッキを保存
                                     </button>
                                 </div>
+                                <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                                    <button
+                                        onClick={handleExportDecks}
+                                        className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition duration-200"
+                                        disabled={loading || savedDecks.length === 0}
+                                    >
+                                        デッキデータをエクスポート
+                                    </button>
+                                    <button
+                                        onClick={triggerImport}
+                                        className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition duration-200"
+                                        disabled={loading}
+                                    >
+                                        デッキデータをインポート
+                                    </button>
+                                </div>
                                 {savedDecks.length === 0 ? (
                                     <p className="text-gray-400 text-center mt-4">保存されたデッキはありません。</p>
                                 ) : (
@@ -1961,6 +2068,17 @@
                                                 </strong>
                                                 <p className="text-sm text-gray-300 ml-4">
                                                     このカードがプレイされたゲーム中、ターン終了時に「このターン中にプレイしたカードの枚数」が3枚以上だった場合、カードを1枚ドローします。
+                                                </p>
+                                            </li>
+                                            <li>
+                                                <strong
+                                                    className="text-yellow-300 cursor-pointer hover:underline"
+                                                    onClick={() => addSpecialCardToDeck(SPECIAL_CARD_NAMES.TITANIA)}
+                                                >
+                                                    翅の女王・ティターニア: コスト4 | フォロワー
+                                                </strong>
+                                                <p className="text-sm text-gray-300 ml-4">
+                                                    このカードがプレイされたゲーム中、ターン終了時にコスト1のフォロワーを手札に1枚加えます（手札が上限9枚の時は追加されません）。
                                                 </p>
                                             </li>
                                         </ul>
@@ -2116,9 +2234,14 @@
                                                         <li>使用したカードは手札からなくなる</li>
                                                         <li>ドロー効果でカードを引いた場合、手札に加える（手札が{handLimit}枚の場合、引いたカードは破棄）</li>
                                                         {selectedClass === 'Elf' && (
-                                                            <li>
-                                                                <strong>聖樹の杖の効果:</strong> カード名が「聖樹の杖」のカードがプレイされたゲーム中、ターン終了時に「このターン中にプレイしたカードの枚数」が3枚以上だった場合、カードを1枚ドローします。
-                                                            </li>
+                                                            <>
+                                                                <li>
+                                                                    <strong>聖樹の杖の効果:</strong> カード名が「聖樹の杖」のカードがプレイされたゲーム中、ターン終了時に「このターン中にプレイしたカードの枚数」が3枚以上だった場合、カードを1枚ドローします。
+                                                                </li>
+                                                                <li>
+                                                                    <strong>翅の女王・ティターニアの効果:</strong> カード名が「翅の女王・ティターニア」のカードがプレイされたゲーム中、ターン終了時にコスト1のフォロワーを手札に1枚加えます（手札が上限9枚の時は追加されません）。
+                                                                </li>
+                                                            </>
                                                         )}
                                                         {selectedClass === 'Elf' && (
                                                             <li>
@@ -2227,7 +2350,7 @@
                                                     <strong>「[組み合わせ名] (%)」:</strong> 設定した組み合わせ条件が、そのターンまでに累計で満たされている確率を示します。
                                                 </li>
                                                 <li>
-                                                    <strong>「平均確率 (%)」:</strong> すべての有効な組み合わせセットの確率を合計し、その数で割った平均値です。
+                                                    <strong>「平均確率 (%)」::</strong> すべての有効な組み合わせセットの確率を合計し、その数で割った平均値です。
                                                 </li>
                                                 <li>
                                                     <strong>「X枚丁度」:</strong> そのカードがX枚ちょうど手札に来た場合にのみ条件を満たしたと判定されます。特に「0枚丁度」は、そのカードが手札に一度も来なかった場合の確率を計算します。
