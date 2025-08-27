@@ -164,7 +164,7 @@
             'nemesisArtifactGeneration': {
                 displayName: 'AF生成',
                 class: 'Nemesis',
-                defaultData: { generatesFutureCore: false, generatesPastCore: false },
+                defaultData: { generatesFutureCore: false, generatesPastCore: false, futureCoreCount: 1, pastCoreCount: 1 },
                 render: (cardId, featureData, updateCardType, removeFeature) => (
                     <div className="relative flex flex-col p-2 bg-gray-700 rounded-md col-span-full">
                         <div className="flex justify-between items-center mb-1">
@@ -182,24 +182,46 @@
                             </button>
                         </div>
                         <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                            <label className="inline-flex items-center text-sm font-medium text-gray-300">
-                                <input
-                                    type="checkbox"
-                                    checked={featureData.generatesFutureCore}
-                                    onChange={(e) => updateCardType(cardId, 'classFeatures', { type: 'nemesisArtifactGeneration', generatesFutureCore: e.target.checked, generatesPastCore: featureData.generatesPastCore })}
-                                    className="form-checkbox text-purple-500 focus:ring-purple-500 rounded"
-                                />
-                                <span className="ml-2">フューチャー・コア生成</span>
-                            </label>
-                            <label className="inline-flex items-center text-sm font-medium text-gray-300">
-                                <input
-                                    type="checkbox"
-                                    checked={featureData.generatesPastCore}
-                                    onChange={(e) => updateCardType(cardId, 'classFeatures', { type: 'nemesisArtifactGeneration', generatesFutureCore: featureData.generatesFutureCore, generatesPastCore: e.target.checked })}
-                                    className="form-checkbox text-purple-500 focus:ring-purple-500 rounded"
-                                />
-                                <span className="ml-2">パスト・コア生成</span>
-                            </label>
+                            <div className="flex-1">
+                                <label className="inline-flex items-center text-sm font-medium text-gray-300 mb-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={featureData.generatesFutureCore}
+                                        onChange={(e) => updateCardType(cardId, 'classFeatures', { type: 'nemesisArtifactGeneration', generatesFutureCore: e.target.checked, generatesPastCore: featureData.generatesPastCore, futureCoreCount: featureData.futureCoreCount, pastCoreCount: featureData.pastCoreCount })}
+                                        className="form-checkbox text-purple-500 focus:ring-purple-500 rounded"
+                                    />
+                                    <span className="ml-2">フューチャー・コア生成</span>
+                                </label>
+                                {featureData.generatesFutureCore && (
+                                    <input
+                                        type="number"
+                                        value={featureData.futureCoreCount}
+                                        onChange={(e) => updateCardType(cardId, 'classFeatures', { type: 'nemesisArtifactGeneration', generatesFutureCore: true, generatesPastCore: featureData.generatesPastCore, futureCoreCount: parseInt(e.target.value) || 0, pastCoreCount: featureData.pastCoreCount })}
+                                        className="p-1 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm w-16 ml-2"
+                                        min="0"
+                                    />
+                                )}
+                            </div>
+                            <div className="flex-1">
+                                <label className="inline-flex items-center text-sm font-medium text-gray-300 mb-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={featureData.generatesPastCore}
+                                        onChange={(e) => updateCardType(cardId, 'classFeatures', { type: 'nemesisArtifactGeneration', generatesFutureCore: featureData.generatesFutureCore, generatesPastCore: e.target.checked, futureCoreCount: featureData.futureCoreCount, pastCoreCount: featureData.pastCoreCount })}
+                                        className="form-checkbox text-purple-500 focus:ring-purple-500 rounded"
+                                    />
+                                    <span className="ml-2">パスト・コア生成</span>
+                                </label>
+                                {featureData.generatesPastCore && (
+                                    <input
+                                        type="number"
+                                        value={featureData.pastCoreCount}
+                                        onChange={(e) => updateCardType(cardId, 'classFeatures', { type: 'nemesisArtifactGeneration', generatesFutureCore: featureData.generatesFutureCore, generatesPastCore: true, futureCoreCount: featureData.futureCoreCount, pastCoreCount: parseInt(e.target.value) || 0 })}
+                                        className="p-1 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm w-16 ml-2"
+                                        min="0"
+                                    />
+                                )}
+                            </div>
                         </div>
                     </div>
                 ),
@@ -207,9 +229,86 @@
                     if (!featureData.generatesFutureCore && !featureData.generatesPastCore) {
                         return `カード「${card.name || '名称未設定'}」のAF生成特性は、フューチャー・コアまたはパスト・コアのいずれか、あるいは両方を生成するように設定してください。`;
                     }
+                    if (featureData.generatesFutureCore && (isNaN(featureData.futureCoreCount) || featureData.futureCoreCount < 0)) {
+                        return `カード「${card.name || '名称未設定'}」のフューチャー・コア生成枚数は0以上の数字で指定してください。`;
+                    }
+                    if (featureData.generatesPastCore && (isNaN(featureData.pastCoreCount) || featureData.pastCoreCount < 0)) {
+                        return `カード「${card.name || '名称未設定'}」のパスト・コア生成枚数は0以上の数字で指定してください。`;
+                    }
                     return null;
                 }
             },
+            'nemesisAFCopy': {
+                displayName: 'AFコピー',
+                class: 'Nemesis',
+                defaultData: { copyCount: 1 },
+                render: (cardId, featureData, updateCardType, removeFeature) => (
+                    <div className="relative flex items-center gap-2 p-2 bg-gray-700 rounded-md col-span-full">
+                        <div className="flex-1 flex flex-col">
+                            <label htmlFor={`afCopyCount-${cardId}`} className="text-xs font-semibold text-gray-300 mb-1">ネメシス特性: AFコピー枚数</label>
+                            <input
+                                type="number"
+                                id={`afCopyCount-${cardId}`}
+                                value={featureData.copyCount}
+                                onChange={(e) => updateCardType(cardId, 'classFeatures', { type: 'nemesisAFCopy', copyCount: parseInt(e.target.value) || 0 })}
+                                className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                min="1"
+                                max="3"
+                            />
+                        </div>
+                        <button
+                            onClick={() => removeFeature(cardId, 'nemesisAFCopy')}
+                            className="absolute top-1 right-1 text-red-400 hover:text-red-200 transition duration-200 p-1 rounded-full hover:bg-red-800"
+                            title="この特性を削除"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                ),
+                validate: (card, featureData) => {
+                    if (isNaN(featureData.copyCount) || featureData.copyCount < 1 || featureData.copyCount > 3) {
+                        return `カード「${card.name || '名称未設定'}」のAFコピー枚数は1から3までの数字で指定してください。`;
+                    }
+                    return null;
+                }
+            },
+            'nightmareFaithValue': {
+                displayName: '信仰値増加',
+                class: 'Nightmare',
+                defaultData: { amount: 1 },
+                render: (cardId, featureData, updateCardType, removeFeature) => (
+                    <div className="relative flex items-center gap-2 p-2 bg-gray-700 rounded-md col-span-full">
+                        <div className="flex-1 flex flex-col">
+                            <label htmlFor={`faithValueAmount-${cardId}`} className="text-xs font-semibold text-gray-300 mb-1">ナイトメア特性: 信仰値増加量</label>
+                            <input
+                                type="number"
+                                id={`faithValueAmount-${cardId}`}
+                                value={featureData.amount}
+                                onChange={(e) => updateCardType(cardId, 'classFeatures', { type: 'nightmareFaithValue', amount: parseInt(e.target.value) || 0 })}
+                                className="p-2 rounded-md bg-gray-600 border border-gray-500 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                min="0"
+                            />
+                        </div>
+                        <button
+                            onClick={() => removeFeature(cardId, 'nightmareFaithValue')}
+                            className="absolute top-1 right-1 text-red-400 hover:text-red-200 transition duration-200 p-1 rounded-full hover:bg-red-800"
+                            title="この特性を削除"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                ),
+                validate: (card, featureData) => {
+                    if (isNaN(featureData.amount) || featureData.amount < 0) {
+                        return `カード「${card.name || '名称未設定'}」の信仰値増加量は0以上の数字で指定してください。`;
+                    }
+                    return null;
+                }
+            }
         };
 
         const SPECIAL_CARD_NAMES = {
@@ -253,8 +352,68 @@
                 isArtifact: true,
                 isPlayable: false, // These cannot be played directly, only fused
                 isToken: true, // Mark as token to distinguish from deck cards
+            },
+            // Adding a new AF for the fusion result
+            ATTACK_ARTIFACT: {
+                name: 'アタックアーティファクト',
+                cost: 3,
+                type: 'フォロワー',
+                isArtifact: true,
+                isPlayable: true,
+                isToken: true, // Generated from fusion, so it's a token
+            },
+            CASTLE_ARTIFACT: {
+                name: 'キャッスルアーティファクト',
+                cost: 3,
+                type: 'フォロワー',
+                isArtifact: true,
+                isPlayable: true,
+                isToken: true, // Generated from fusion, so it's a token
+            },
+            // デストロイアーティファクトの定義
+            DESTROY_ARTIFACT_ALPHA: {
+                name: 'デストロイアーティファクトα',
+                cost: 5,
+                type: 'フォロワー',
+                isArtifact: true,
+                isPlayable: true,
+                isToken: true,
+                fusionRequirements: {
+                    type: ['デストロイアーティファクトβ', 'デストロイアーティファクトγ'],
+                    count: 2
+                }
+            },
+            DESTROY_ARTIFACT_BETA: {
+                name: 'デストロイアーティファクトβ',
+                cost: 5,
+                type: 'フォロワー',
+                isArtifact: true,
+                isPlayable: true,
+                isToken: true,
+            },
+            DESTROY_ARTIFACT_GAMMA: {
+                name: 'デストロイアーティファクトγ',
+                cost: 5,
+                type: 'フォロワー',
+                isArtifact: true,
+                isPlayable: true,
+                isToken: true,
+            },
+            EXCEED_ARTIFACT_OMEGA: {
+                name: 'イクシードアーティファクトΩ',
+                cost: 10,
+                type: 'フォロワー',
+                isArtifact: true,
+                isPlayable: true,
+                isToken: true,
             }
         };
+
+        const DESTROY_ARTIFACT_OPTIONS = [
+            { value: 'alpha', name: 'デストロイアーティファクトα' },
+            { value: 'beta', name: 'デストロイアーティファクトβ' },
+            { value: 'gamma', name: 'デストロイアーティファクトγ' },
+        ];
 
         // Define the desired class order for display
         const CLASS_DISPLAY_ORDER = ['Elf', 'Royal', 'Witch', 'Dragon', 'Nightmare', 'Bishop', 'Nemesis'];
@@ -361,6 +520,13 @@
             const [extraPpTurn2, setExtraPpTurn2] = useState(6);
             const [selectedClass, setSelectedClass] = useState(''); 
             
+            // New state for multiple destroy artifact fusion choices
+            const [destroyArtifactFusions, setDestroyArtifactFusions] = useState({
+                1: 'beta', // Default for 1st fusion
+                2: 'beta', // Default for 2nd fusion
+                3: 'beta', // Default for 3rd fusion
+            });
+
             // UI state for collapsible sections
             const [showGameSettings, setShowGameSettings] = useState(true);
             const [showDeckSettings, setShowDeckSettings] = useState(true);
@@ -817,10 +983,12 @@
                 const isWitchClassSelected = selectedClass === 'Witch';
                 const isElfClassSelected = selectedClass === 'Elf'; // エルフクラスの選択状態
                 const isNemesisClassSelected = selectedClass === 'Nemesis'; // ネメシスクラスの選択状態
+                const isNightmareClassSelected = selectedClass === 'Nightmare'; // ナイトメアクラスの選択状態
 
                 let totalSpellsPlayedPerTurnRawSum = Array(maxTurns + 1).fill(0);
                 let totalCumulativeSpellsPlayedRawSum = Array(maxTurns + 1).fill(0);
                 let totalCardsPlayedPerTurnRawSum = Array(maxTurns + 1).fill(0); // エルフ用: ターンごとのプレイ枚数合計
+                let totalFaithValueRawSum = Array(maxTurns + 1).fill(0); // ナイトメア用: 信仰値合計
 
                 let simulationsCompleted = 0;
 
@@ -861,6 +1029,7 @@
                     let spellsPlayedPerTurnInSim = Array(maxTurns + 1).fill(0);
                     let cumulativeSpellsPlayedInSim = Array(maxTurns + 1).fill(0);
                     let cardsPlayedPerTurnInSim = Array(maxTurns + 1).fill(0); // エルフ用: ターンごとのプレイ枚数
+                    let faithValueInSim = 0; // ナイトメア用: 信仰値
 
                     let holyTreeStaffPlayedThisSim = false; // 聖樹の杖がこのシミュレーションでプレイされたか
                     let titaniaEffectActiveThisGame = false; // 翅の女王・ティターニアの効果がゲーム中にアクティブか
@@ -954,7 +1123,11 @@
                     if (isElfClassSelected) { // エルフ用初期化
                         cardsPlayedPerTurnInSim[0] = 0;
                     }
+                    if (isNightmareClassSelected) { // ナイトメア用初期化
+                        faithValueInSim = 0;
+                    }
 
+                    let destroyArtifactFusionCount = 0; // デストロイアーティファクトの融合回数を追跡
 
                     for (let turn = 1; turn <= maxTurns; turn++) {
                         let currentTurnSpellsPlayed = 0;
@@ -986,31 +1159,113 @@
 
                         drawCardAndUpdateCumulative();
                         
-                        // --- AF融合シミュレーションの追加 ---
+                        // --- AF融合シミュレーションの追加 (AFアミュレット -> 3コストAFフォロワー) ---
                         if (isNemesisClassSelected) {
-                            // 手札にあるAFアミュレット（フューチャー・コア、パスト・コア）の数をカウント
-                            const afAmuletsInHand = hand.filter(card => card.isArtifact && card.type === 'アミュレット');
+                            let afAmuletsInHand;
+                            let afFollowersInHand;
+
+                            while (true) {
+                                afAmuletsInHand = hand.filter(card => card.isArtifact && card.type === 'アミュレット' && (card.name === NEMESIS_GENERATED_ARTIFACTS.FUTURE_CORE.name || card.name === NEMESIS_GENERATED_ARTIFACTS.PAST_CORE.name));
+                                afFollowersInHand = hand.filter(card => card.isArtifact && card.type === 'フォロワー' && (card.name === NEMESIS_GENERATED_ARTIFACTS.ATTACK_ARTIFACT.name || card.name === NEMESIS_GENERATED_ARTIFACTS.CASTLE_ARTIFACT.name));
+
+                                let shouldFuse = false;
+                                if (afFollowersInHand.length === 0) {
+                                    if (afAmuletsInHand.length >= 2) {
+                                        shouldFuse = true;
+                                    }
+                                } else if (afFollowersInHand.length === 1) {
+                                    if (afAmuletsInHand.length >= 4) {
+                                        shouldFuse = true;
+                                    }
+                                }
+
+                                if (shouldFuse) {
+                                    // 手札からAFアミュレット2枚を削除
+                                    const index1 = hand.findIndex(card => card === afAmuletsInHand[0]);
+                                    hand.splice(index1, 1);
+                                    const index2 = hand.findIndex(card => card === afAmuletsInHand[1]);
+                                    hand.splice(index2, 1);
+                                    
+                                    // どちらのAFフォロワーに変身するかランダムに決定
+                                    const newAF = Math.random() < 0.5 
+                                        ? { ...NEMESIS_GENERATED_ARTIFACTS.ATTACK_ARTIFACT }
+                                        : { ...NEMESIS_GENERATED_ARTIFACTS.CASTLE_ARTIFACT };
+                                    
+                                    // 新しいAFフォロワーを手札に追加
+                                    if (hand.length < handLimit) {
+                                        hand.push(newAF);
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
                             
-                            // AFアミュレットが2枚以上あれば、融合・変身処理を繰り返す
-                            while (afAmuletsInHand.length >= 2) {
-                                // 手札からAFアミュレット2枚を削除
-                                const index1 = hand.indexOf(afAmuletsInHand[0]);
-                                hand.splice(index1, 1);
-                                const index2 = hand.indexOf(afAmuletsInHand[1]);
-                                hand.splice(index2, 1);
+                            // デストロイアーティファクトの融合ロジック (3コストAFフォロワー -> デストロイアーティファクト)
+                            while (true) {
+                                const afFollowersInHand = hand.filter(card => card.isArtifact && card.type === 'フォロワー' && (card.name === NEMESIS_GENERATED_ARTIFACTS.ATTACK_ARTIFACT.name || card.name === NEMESIS_GENERATED_ARTIFACTS.CASTLE_ARTIFACT.name));
                                 
-                                // どちらのAFフォロワーに変身するかランダムに決定
-                                const newAF = Math.random() < 0.5 
-                                    ? { name: 'アタックアーティファクト', cost: 3, type: 'フォロワー', isArtifact: true, isPlayable: true }
-                                    : { name: 'キャッスルアーティファクト', cost: 3, type: 'フォロワー', isArtifact: true, isPlayable: true };
+                                // 融合対象となる3コストAFフォロワーが1枚でも手札にあれば融合を試みる
+                                const fusionTargetIndex = hand.findIndex(card => afFollowersInHand.includes(card));
+                                if (fusionTargetIndex === -1) break; // 融合対象がなければ終了
                                 
-                                // 新しいAFフォロワーを手札に追加
-                                if (hand.length < handLimit) {
-                                    hand.push(newAF);
+                                const fusionTarget = hand[fusionTargetIndex];
+                                
+                                const afAmuletsInHandForDestroy = hand.filter(card => card.isArtifact && card.type === 'アミュレット');
+                                const otherAfFollowersInHand = afFollowersInHand.filter(card => card !== fusionTarget);
+                                
+                                let newDestroyArtifactName = null;
+                                let fusionMaterials = [];
+                                const fusionChoice = destroyArtifactFusions[destroyArtifactFusionCount + 1] || 'beta';
+                                
+                                if (fusionChoice === 'alpha') {
+                                    // αに変身する場合：3コストAFフォロワー1枚 + 1コストAFアミュレット1枚
+                                    if (afAmuletsInHandForDestroy.length >= 1) {
+                                        newDestroyArtifactName = NEMESIS_GENERATED_ARTIFACTS.DESTROY_ARTIFACT_ALPHA.name;
+                                        fusionMaterials.push(afAmuletsInHandForDestroy[0]);
+                                    }
+                                } else if (fusionChoice === 'beta') {
+                                    // βに変身する場合：3コストAFフォロワー1枚 + 1コストAFアミュレット2枚
+                                    if (afAmuletsInHandForDestroy.length >= 2) {
+                                        newDestroyArtifactName = NEMESIS_GENERATED_ARTIFACTS.DESTROY_ARTIFACT_BETA.name;
+                                        fusionMaterials.push(afAmuletsInHandForDestroy[0], afAmuletsInHandForDestroy[1]);
+                                    }
+                                } else if (fusionChoice === 'gamma') {
+                                    // γに変身する場合：3コストAFフォロワー2枚
+                                    if (otherAfFollowersInHand.length >= 1) {
+                                        newDestroyArtifactName = NEMESIS_GENERATED_ARTIFACTS.DESTROY_ARTIFACT_GAMMA.name;
+                                        fusionMaterials.push(otherAfFollowersInHand[0]);
+                                    }
                                 }
                                 
-                                // 融合されたAFアミュレットのリストを再取得
-                                afAmuletsInHand = hand.filter(card => card.isArtifact && card.type === 'アミュレット');
+                                if (newDestroyArtifactName) {
+                                    // 融合素材を消費
+                                    for(const material of fusionMaterials) {
+                                        const materialIndex = hand.indexOf(material);
+                                        hand.splice(materialIndex, 1);
+                                    }
+                                    
+                                    // 融合対象のカードを変身させる
+                                    const targetIndex = hand.indexOf(fusionTarget);
+                                    if (targetIndex !== -1) {
+                                        hand.splice(targetIndex, 1);
+                                    }
+
+                                    // 新しいデストロイアーティファクトを生成
+                                    if (hand.length < handLimit) {
+                                        let newDestroyCard;
+                                        if (newDestroyArtifactName === NEMESIS_GENERATED_ARTIFACTS.DESTROY_ARTIFACT_ALPHA.name) {
+                                            newDestroyCard = { ...NEMESIS_GENERATED_ARTIFACTS.DESTROY_ARTIFACT_ALPHA };
+                                        } else if (newDestroyArtifactName === NEMESIS_GENERATED_ARTIFACTS.DESTROY_ARTIFACT_BETA.name) {
+                                            newDestroyCard = { ...NEMESIS_GENERATED_ARTIFACTS.DESTROY_ARTIFACT_BETA };
+                                        } else { // gamma
+                                            newDestroyCard = { ...NEMESIS_GENERATED_ARTIFACTS.DESTROY_ARTIFACT_GAMMA };
+                                        }
+                                        hand.push(newDestroyCard);
+                                        destroyArtifactFusionCount++;
+                                    }
+                                } else {
+                                    break;
+                                }
                             }
                         }
                         // --- AF融合シミュレーションの追加ここまで ---
@@ -1022,6 +1277,43 @@
                         while (true) {
                             // Modified filter to include isPlayable check
                             let playableCards = hand.filter(card => card.cost <= currentPp && !playedThisTurnInstances.has(card) && card.isPlayable !== false);
+                            
+                            // ネメシスのAFコピー能力の適用
+                            if (isNemesisClassSelected) {
+                                const afCopyCardsInHand = hand.filter(card => 
+                                    card.classFeatures && card.classFeatures.some(f => f.type === 'nemesisAFCopy')
+                                );
+
+                                for (const afCopyCard of afCopyCardsInHand) {
+                                    const copyCount = afCopyCard.classFeatures.find(f => f.type === 'nemesisAFCopy').copyCount;
+                                    const targetArtifacts = hand.filter(c => c.isArtifact && c.type === 'フォロワー' && (c.name === NEMESIS_GENERATED_ARTIFACTS.ATTACK_ARTIFACT.name || c.name === NEMESIS_GENERATED_ARTIFACTS.CASTLE_ARTIFACT.name || c.name.includes('デストロイアーティファクト')));
+                                    
+                                    if (targetArtifacts.length >= copyCount) {
+                                        // コピー可能な枚数分、AFフォロワーを生成
+                                        for (let i = 0; i < copyCount; i++) {
+                                            if (hand.length < handLimit) {
+                                                const copiedCard = { ...targetArtifacts[i], isToken: true };
+                                                hand.push(copiedCard);
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                        // AFコピーカードは使用済みとして扱う
+                                        playedThisTurnInstances.add(afCopyCard);
+                                        // 手札からコピー対象のカードを消費
+                                        // 複数のAFフォロワーをコピーする場合、最初に発見されたコピー枚数分を消費
+                                        for (let i = 0; i < copyCount; i++) {
+                                            const index = hand.indexOf(targetArtifacts[i]);
+                                            if (index > -1) {
+                                                hand.splice(index, 1);
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // AFコピー能力使用後の手札で再度プレイ可能なカードをフィルタリング
+                                playableCards = hand.filter(card => card.cost <= currentPp && !playedThisTurnInstances.has(card) && card.isPlayable !== false);
+                            }
 
                             if (playableCards.length === 0) {
                                 break;
@@ -1070,17 +1362,30 @@
                                         }
                                     } else if (feature.type === 'nemesisArtifactGeneration' && isNemesisClassSelected) {
                                         if (feature.generatesFutureCore) {
-                                            if (hand.length < handLimit) {
-                                                hand.push({ ...NEMESIS_GENERATED_ARTIFACTS.FUTURE_CORE });
+                                            for (let i = 0; i < feature.futureCoreCount; i++) {
+                                                if (hand.length < handLimit) {
+                                                    hand.push({ ...NEMESIS_GENERATED_ARTIFACTS.FUTURE_CORE });
+                                                }
                                             }
                                         }
                                         if (feature.generatesPastCore) {
-                                            if (hand.length < handLimit) {
-                                                hand.push({ ...NEMESIS_GENERATED_ARTIFACTS.PAST_CORE });
+                                            for (let i = 0; i < feature.pastCoreCount; i++) {
+                                                if (hand.length < handLimit) {
+                                                    hand.push({ ...NEMESIS_GENERATED_ARTIFACTS.PAST_CORE });
+                                                }
                                             }
                                         }
                                     }
                                 });
+                            }
+                            
+                            // ナイトメアの「モード」能力の処理
+                            if (isNightmareClassSelected) {
+                                const hasModeAbility = cardTypes.find(ct => ct.id === cardToPlay.id)?.classFeatures?.some(f => f.type === 'nightmareFaithValue');
+                                if (hasModeAbility) {
+                                    const modeFeature = cardTypes.find(ct => ct.id === cardToPlay.id)?.classFeatures?.find(f => f.type === 'nightmareFaithValue');
+                                    faithValueInSim += modeFeature.amount;
+                                }
                             }
 
                             if (isWitchClassSelected && cardToPlay.type === 'スペル') {
@@ -1142,6 +1447,9 @@
                         }
                         if (isElfClassSelected) { // エルフ用: ターンごとのプレイ枚数平均を記録
                             cardsPlayedPerTurnInSim[turn] = currentTurnCardsPlayed;
+                        }
+                        if (isNightmareClassSelected) { // ナイトメア用: ターンごとの信仰値合計を累積
+                            totalFaithValueRawSum[turn] += faithValueInSim;
                         }
                     } // End of turn loop
 
@@ -1211,6 +1519,9 @@
                             if (isElfClassSelected) { // エルフ用: ターンごとのプレイ枚数平均を追加
                                 currentTurnData.averageCardsPlayedPerTurn = (totalCardsPlayedPerTurnRawSum[turn] / numSimulations).toFixed(2);
                             }
+                            if (isNightmareClassSelected) { // ナイトメア用: ターンごとの信仰値平均を追加
+                                currentTurnData.averageFaithValue = (totalFaithValueRawSum[turn] / numSimulations).toFixed(2);
+                            }
                             finalResults.push(currentTurnData);
                         }
 
@@ -1220,7 +1531,7 @@
                 };
 
                 requestAnimationFrame(runBatch);
-            }, [cardTypes, calculationMode, selectedTargetCardTypeId, combinationSets, isFirstPlayer, numSimulations, deckSize, maxTurns, extraPpTurn1, extraPpTurn2, selectedClass, handLimit]);
+            }, [cardTypes, calculationMode, selectedTargetCardTypeId, combinationSets, isFirstPlayer, numSimulations, deckSize, maxTurns, extraPpTurn1, extraPpTurn2, selectedClass, destroyArtifactFusions, handLimit]);
 
             // Helper function to get color class based on probability
             const getProbabilityColorClass = (probability) => {
@@ -1278,7 +1589,8 @@
                         isFirstPlayer,
                         extraPpTurn1,
                         extraPpTurn2,
-                        selectedClass
+                        selectedClass,
+                        destroyArtifactFusions, // 保存対象に追加
                     },
                     calculationMode: calculationMode, // 計算モードも保存
                     selectedTargetCardTypeId: selectedTargetCardTypeId, // 単一カードモード用
@@ -1318,13 +1630,14 @@
                             const { spellboostIncreaseAmount, generatesToken, tokenCost, tokenCount, generatesTokenAtEndOfTurn, ...rest } = card;
                             return { ...rest, classFeatures: newFeatures };
                         }
-                        return { ...card, classFeatures: card.classFeatures || [] }; // Ensure classFeatures is initialized
+                        return { ...card, classFeatures: card.classFeatures || [] };
                     }));
 
                     setIsFirstPlayer(savedItem.gameSettingsData.isFirstPlayer);
-                    setExtraPpTurn1(savedItem.gameSettingsData.extraPpTurn1);
-                    setExtraPpTurn2(savedItem.gameSettingsData.extraPpTurn2); 
+                    setExtraPpTurn1(savedItem.gameSettingsData.extraPp1);
+                    setExtraPpTurn2(savedItem.gameSettingsData.extraPp2); 
                     setSelectedClass(savedItem.gameSettingsData.selectedClass);
+                    setDestroyArtifactFusions(savedItem.gameSettingsData.destroyArtifactFusions || { 1: 'beta', 2: 'beta', 3: 'beta'}); // 新しい設定をロード
                     setCalculationMode(savedItem.calculationMode || CALC_MODE_COMBINATION); // モードもロード
                     setSelectedTargetCardTypeId(savedItem.selectedTargetCardTypeId || (savedItem.cardTypesData[0]?.id || null)); // 単一カード用
                     
@@ -1427,6 +1740,7 @@
                     setExtraPpTurn1(5);
                     setExtraPpTurn2(6);
                     setSelectedClass('');
+                    setDestroyArtifactFusions({ 1: 'beta', 2: 'beta', 3: 'beta' });
 
                     setMessage(`デッキ「${deckToLoad.name}」を読み込みました。`);
                     setShowSavedDecksPanel(false);
@@ -1589,11 +1903,18 @@
             const maxTargetCopiesInDeck = parseInt(selectedTargetCard?.count || 0);
             const displayMaxCopies = Math.min(maxTargetCopiesInDeck, 3);
 
+            const handleDestroyArtifactFusionChange = (fusionNum, value) => {
+                setDestroyArtifactFusions(prevFusions => ({
+                    ...prevFusions,
+                    [fusionNum]: value
+                }));
+            };
+
             return (
                 <React.Fragment> {/* Added React.Fragment */}
                     <div className="p-4 sm:p-6 md:p-8 bg-gray-900 text-white min-h-screen font-inter">
                         <h1 className="text-3xl sm:text-4xl font-bold text-center mb-6 sm:mb-8 text-purple-400">
-                            これさ、ひ、引けんの？　β版
+                            ひ、引けんの？β版
                         </h1>
 
                         <div className="max-w-full mx-auto bg-gray-800 rounded-xl shadow-lg p-6 sm:p-8 space-y-6">
@@ -1668,6 +1989,35 @@
                                             <option value="Nemesis">ネメシス</option>
                                         </select>
                                     </div>
+
+                                    {/* Initial Destroy Artifact Selection (only for Nemesis) */}
+                                    {selectedClass === 'Nemesis' && (
+                                        <div className="flex flex-col mt-4 p-4 bg-gray-800 rounded-md space-y-3">
+                                            <p className="text-sm font-medium text-gray-300 mb-1">融合で生成するデストロイアーティファクト:</p>
+                                            {[1, 2, 3].map(fusionNum => (
+                                                <div key={fusionNum} className="flex items-center gap-2">
+                                                    <label htmlFor={`fusion-${fusionNum}-select`} className="text-xs text-gray-400 w-16">
+                                                        {fusionNum}回目:
+                                                    </label>
+                                                    <select
+                                                        id={`fusion-${fusionNum}-select`}
+                                                        value={destroyArtifactFusions[fusionNum] || 'beta'} // デフォルト値を設定
+                                                        onChange={(e) => handleDestroyArtifactFusionChange(fusionNum, e.target.value)}
+                                                        className="flex-1 p-2 rounded-md bg-gray-700 border border-gray-600 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                    >
+                                                        {DESTROY_ARTIFACT_OPTIONS.map(option => (
+                                                            <option key={option.value} value={option.value}>
+                                                                {option.name}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            ))}
+                                            <p className="text-xs text-gray-500 mt-2">
+                                                ※未設定の融合は自動的にデストロイアーティファクトβになります。
+                                            </p>
+                                        </div>
+                                    )}
 
                                     {/* Player turn selection */}
                                     <div className="flex flex-col">
@@ -2369,6 +2719,11 @@
                                                             プレイ枚数 (ターン平均)
                                                         </th>
                                                     )}
+                                                    {selectedClass === 'Nightmare' && ( // ナイトメア用データ
+                                                        <th className="py-3 px-4 text-left text-sm font-medium text-gray-300 uppercase tracking-wider">
+                                                            信仰値 (平均)
+                                                        </th>
+                                                    )}
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -2440,6 +2795,11 @@
                                                             {selectedClass === 'Elf' && ( // エルフ用データ
                                                                 <td className="py-3 px-4 whitespace-nowrap text-sm">
                                                                     {res.averageCardsPlayedPerTurn !== undefined ? res.averageCardsPlayedPerTurn : '-'}
+                                                                </td>
+                                                            )}
+                                                            {selectedClass === 'Nightmare' && ( // ナイトメア用データ
+                                                                <td className="py-3 px-4 whitespace-nowrap text-sm">
+                                                                    {res.averageFaithValue !== undefined ? res.averageFaithValue : '-'}
                                                                 </td>
                                                             )}
                                                         </tr>
@@ -2670,12 +3030,9 @@
                                                     {selectedClass === 'Elf' && ( // エルフ用結果説明
                                                         <li>エルフクラス選択時は、各ターン終了時までにプレイされたカードの合計枚数の平均値を「プレイ枚数 (ターン平均)」として表示します。これは、エルフの「コンボ」能力を考慮するための指標となります。</li>
                                                     )}
-                                                    <li>
-                                                        「X枚丁度」の条件を設定した場合、そのカードがX枚ちょうど手札に来た場合にのみ条件を満たしたと判定されます。特に「0枚丁度」は、そのカードが手札に一度も来なかった場合の確率を計算します。
-                                                    </li>
-                                                    <li>
-                                                        「X枚以上デッキに残す」または「X枚丁度デッキに残す」の条件を設定した場合、そのカードがデッキに指定枚数以上または指定枚数丁度残っている場合にのみ条件を満たしたと判定されます。これらの確率は、そのターン終了時点での状態を示します。
-                                                    </li>
+                                                    {selectedClass === 'Nightmare' && ( // ナイトメア用結果説明
+                                                        <li>ナイトメアクラス選択時は、各ターン終了時までに増加した信仰値の平均値を「信仰値 (平均)」として表示します。</li>
+                                                    )}
                                                 </ul>
                                             </li>
                                         </ol>
